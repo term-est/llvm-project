@@ -3443,7 +3443,6 @@ Sema::ActOnCXXMemberDeclarator(Scope *S, AccessSpecifier AS, Declarator &D,
     Loc = D.getBeginLoc();
 
   assert(isa<CXXRecordDecl>(CurContext));
-  assert(!DS.isFriendSpecified());
 
   bool isFunc = D.isDeclarationOfFunction();
   const ParsedAttr *MSPropertyAttr =

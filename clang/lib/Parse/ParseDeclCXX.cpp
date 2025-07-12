@@ -3060,16 +3060,6 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     }
     DeclaratorInfo.setFunctionDefinitionKind(DefinitionKind);
 
-    // C++11 [dcl.attr.grammar] p4: If an attribute-specifier-seq appertains
-    // to a friend declaration, that declaration shall be a definition.
-    if (DeclaratorInfo.isFunctionDeclarator() &&
-        DefinitionKind == FunctionDefinitionKind::Declaration &&
-        DS.isFriendSpecified()) {
-      // Diagnose attributes that appear before decl specifier:
-      // [[]] friend int foo();
-      ProhibitAttributes(DeclAttrs);
-    }
-
     if (DefinitionKind != FunctionDefinitionKind::Declaration) {
       if (!DeclaratorInfo.isFunctionDeclarator()) {
         Diag(DeclaratorInfo.getIdentifierLoc(), diag::err_func_def_no_params);
@@ -3151,21 +3141,8 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     // See Sema::ActOnCXXMemberDeclarator for details.
 
     NamedDecl *ThisDecl = nullptr;
-    if (DS.isFriendSpecified()) {
-      // C++11 [dcl.attr.grammar] p4: If an attribute-specifier-seq appertains
-      // to a friend declaration, that declaration shall be a definition.
-      //
-      // Diagnose attributes that appear in a friend member function declarator:
-      //   friend int foo [[]] ();
-      for (const ParsedAttr &AL : DeclaratorInfo.getAttributes())
-        if (AL.isCXX11Attribute() || AL.isRegularKeywordAttribute()) {
-          auto Loc = AL.getRange().getBegin();
-          (AL.isRegularKeywordAttribute()
-               ? Diag(Loc, diag::err_keyword_not_allowed) << AL
-               : Diag(Loc, diag::err_attributes_not_allowed))
-              << AL.getRange();
-        }
 
+    if (DS.isFriendSpecified()) {
       ThisDecl = Actions.ActOnFriendFunctionDecl(getCurScope(), DeclaratorInfo,
                                                  TemplateParams);
     } else {
@@ -3178,10 +3155,10 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
         // Re-direct this decl to refer to the templated decl so that we can
         // initialize it.
         ThisDecl = VT->getTemplatedDecl();
-
-      if (ThisDecl)
-        Actions.ProcessDeclAttributeList(getCurScope(), ThisDecl, AccessAttrs);
     }
+
+    if (ThisDecl)
+      Actions.ProcessDeclAttributeList(getCurScope(), ThisDecl, AccessAttrs);
 
     // Error recovery might have converted a non-static member into a static
     // member.
