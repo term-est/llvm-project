@@ -45,7 +45,7 @@ namespace RTLIB {
 
 // Return an iterator over all Libcall values.
 static inline auto libcalls() {
-  return enum_seq(static_cast<RTLIB::Libcall>(0), RTLIB::UNKNOWN_LIBCALL);
+  return enum_seq(static_cast<RTLIB::Libcall>(0), RTLIB::Libcall::UNKNOWN_LIBCALL);
 }
 
 static inline auto libcall_impls() {
@@ -129,10 +129,10 @@ struct RuntimeLibcallsInfo {
 
 private:
   static const RTLIB::LibcallImpl
-      DefaultLibcallImpls[RTLIB::UNKNOWN_LIBCALL + 1];
+      DefaultLibcallImpls[llvm::to_underlying(RTLIB::Libcall::UNKNOWN_LIBCALL) + 1];
 
   /// Stores the implementation choice for each each libcall.
-  RTLIB::LibcallImpl LibcallImpls[RTLIB::UNKNOWN_LIBCALL + 1] = {
+  RTLIB::LibcallImpl LibcallImpls[llvm::to_underlying(RTLIB::Libcall::UNKNOWN_LIBCALL) + 1] = {
       RTLIB::Unsupported};
 
   static_assert(static_cast<int>(CallingConv::C) == 0,
