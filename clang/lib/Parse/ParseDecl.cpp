@@ -4643,6 +4643,14 @@ void Parser::ParseDeclarationSpecifiers(
       // After an error the next token can be an annotation token.
       ConsumeAnyToken();
 
+    // If we just saw a real specifier/qualifier and there is a pending
+    // attribute-sequence, attatch it *now* (it belongs to whatever we just
+    // parsed, eg. 'friend').
+    if(!attrs.empty() && AttrsLastTime) {
+      DS.takeAttributesFrom(attrs);
+      attrs.clear();
+    }
+
     AttrsLastTime = false;
   }
 }
