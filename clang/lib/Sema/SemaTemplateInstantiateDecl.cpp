@@ -5447,6 +5447,10 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
   if (Function->isInvalidDecl() || isa<CXXDeductionGuideDecl>(Function))
     return;
 
+  // if we are in a discarded statement context, don't instantiate
+  if (SemaRef.currentEvaluationContext().isDiscardedStatementContext())
+    return;
+
   // Never instantiate an explicit specialization except if it is a class scope
   // explicit specialization.
   TemplateSpecializationKind TSK =
