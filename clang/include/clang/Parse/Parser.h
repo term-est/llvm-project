@@ -1663,11 +1663,11 @@ private:
     case DeclSpecContext::DSC_association:
     case DeclSpecContext::DSC_conv_operator:
     case DeclSpecContext::DSC_new:
+    case DeclSpecContext::DSC_trailing:
       return true;
 
     case DeclSpecContext::DSC_objc_method_result:
     case DeclSpecContext::DSC_template_type_arg:
-    case DeclSpecContext::DSC_trailing:
     case DeclSpecContext::DSC_alias_declaration:
       return false;
     }

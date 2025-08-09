@@ -11093,6 +11093,10 @@ public:
                                         SourceLocation ReturnLoc, Expr *RetExpr,
                                         const AutoType *AT);
 
+  bool DeduceFunctionTypeFromReturnExpr(
+      FunctionDecl *FD, SourceLocation ReturnLoc, Expr *&RetExpr,
+      const DeducedTemplateSpecializationType *DTST);
+
   StmtResult ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
                              Scope *CurScope);
   StmtResult BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,

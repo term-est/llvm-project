@@ -3181,7 +3181,7 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
   // FIXME: The standard wording doesn't currently describe this.
   DeducedType *Deduced = T->getContainedDeducedType();
   bool DeducedIsTrailingReturnType = false;
-  if (Deduced && isa<AutoType>(Deduced) && D.hasTrailingReturnType()) {
+  if (Deduced && D.hasTrailingReturnType()) {
     QualType T = SemaRef.GetTypeFromParser(D.getTrailingReturnType());
     Deduced = T.isNull() ? nullptr : T->getContainedDeducedType();
     DeducedIsTrailingReturnType = true;
@@ -3305,11 +3305,17 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       Error = 12; // Type alias
       break;
     case DeclaratorContext::TrailingReturn:
-    case DeclaratorContext::TrailingReturnVar:
-      if (!SemaRef.getLangOpts().CPlusPlus14 || !IsCXXAutoType)
-        Error = 13; // Function return type
-      IsDeducedReturnType = true;
+    case DeclaratorContext::TrailingReturnVar: {
+      bool IsDTST = isa<DeducedTemplateSpecializationType>(Deduced);
+
+      if (!SemaRef.getLangOpts().CPlusPlus14 || !IsCXXAutoType) {
+        // Permit DTST here under your flag, otherwise error.
+      }
+
+      // IMPORTANT: keep this only for true C++ 'auto' cases.
+      IsDeducedReturnType = IsCXXAutoType;
       break;
+    }
     case DeclaratorContext::ConversionId:
       if (!SemaRef.getLangOpts().CPlusPlus14 || !IsCXXAutoType)
         Error = 14; // conversion-type-id
@@ -3352,8 +3358,19 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
     // In Objective-C it is an error to use 'auto' on a function declarator
     // (and everywhere for '__auto_type').
     if (D.isFunctionDeclarator() &&
-        (!SemaRef.getLangOpts().CPlusPlus11 || !IsCXXAutoType))
-      Error = 13;
+        (!SemaRef.getLangOpts().CPlusPlus11 || !IsCXXAutoType)){
+      bool IsDTST = isa<DeducedTemplateSpecializationType>(Deduced);
+      bool AllowDTSTReturn =
+          IsDTST && (DeducedIsTrailingReturnType ||
+          D.getContext() == DeclaratorContext::File ||
+          D.getContext() == DeclaratorContext::Block ||
+          D.getContext() == DeclaratorContext::ForInit ||
+          D.getContext() == DeclaratorContext::SelectionInit ||
+          D.getContext() == DeclaratorContext::Condition);
+
+      if (!AllowDTSTReturn)
+        Error = 13;
+    }
 
     SourceRange AutoRange = D.getDeclSpec().getTypeSpecTypeLoc();
     if (D.getName().getKind() == UnqualifiedIdKind::IK_ConversionFunctionId)

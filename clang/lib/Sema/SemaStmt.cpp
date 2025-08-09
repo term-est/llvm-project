@@ -3542,59 +3542,29 @@ StmtResult Sema::ActOnCapScopeReturnStmt(SourceLocation ReturnLoc,
 
   if (HasDeducedReturnType) {
     FunctionDecl *FD = CurLambda->CallOperator;
-    // If we've already decided this lambda is invalid, e.g. because
-    // we saw a `return` whose expression had an error, don't keep
-    // trying to deduce its return type.
     if (FD->isInvalidDecl())
       return StmtError();
-    // In C++1y, the return type may involve 'auto'.
-    // FIXME: Blocks might have a return type of 'auto' explicitly specified.
+
     if (CurCap->ReturnType.isNull())
       CurCap->ReturnType = FD->getReturnType();
 
-    AutoType *AT = CurCap->ReturnType->getContainedAutoType();
-    assert(AT && "lost auto type from lambda return type");
-    if (DeduceFunctionTypeFromReturnExpr(FD, ReturnLoc, RetValExp, AT)) {
-      FD->setInvalidDecl();
-      // FIXME: preserve the ill-formed return expression.
-      return StmtError();
+    // First try the 'auto' path (existing behavior)
+    if (AutoType *AT = CurCap->ReturnType->getContainedAutoType()) {
+      if (DeduceFunctionTypeFromReturnExpr(FD, ReturnLoc, RetValExp, AT)) {
+        FD->setInvalidDecl();
+        return StmtError();
+      }
+    } else {
+      // NEW: DTST (e.g., -> std::optional)
+      if (auto *DT = CurCap->ReturnType->getContainedDeducedType())
+        if (auto *DTST = dyn_cast<DeducedTemplateSpecializationType>(DT)) {
+          if (DeduceFunctionTypeFromReturnExpr(FD, ReturnLoc, RetValExp, DTST)) {
+            FD->setInvalidDecl();
+            return StmtError();
+          }
+        }
     }
     CurCap->ReturnType = FnRetType = FD->getReturnType();
-  } else if (CurCap->HasImplicitReturnType) {
-    // For blocks/lambdas with implicit return types, we check each return
-    // statement individually, and deduce the common return type when the block
-    // or lambda is completed.
-    // FIXME: Fold this into the 'auto' codepath above.
-    if (RetValExp && !isa<InitListExpr>(RetValExp)) {
-      ExprResult Result = DefaultFunctionArrayLvalueConversion(RetValExp);
-      if (Result.isInvalid())
-        return StmtError();
-      RetValExp = Result.get();
-
-      // DR1048: even prior to C++14, we should use the 'auto' deduction rules
-      // when deducing a return type for a lambda-expression (or by extension
-      // for a block). These rules differ from the stated C++11 rules only in
-      // that they remove top-level cv-qualifiers.
-      if (!CurContext->isDependentContext())
-        FnRetType = RetValExp->getType().getUnqualifiedType();
-      else
-        FnRetType = CurCap->ReturnType = Context.DependentTy;
-    } else {
-      if (RetValExp) {
-        // C++11 [expr.lambda.prim]p4 bans inferring the result from an
-        // initializer list, because it is not an expression (even
-        // though we represent it as one). We still deduce 'void'.
-        Diag(ReturnLoc, diag::err_lambda_return_init_list)
-          << RetValExp->getSourceRange();
-      }
-
-      FnRetType = Context.VoidTy;
-    }
-
-    // Although we'll properly infer the type of the block once it's completed,
-    // make sure we provide a return type now for better error recovery.
-    if (CurCap->ReturnType.isNull())
-      CurCap->ReturnType = FnRetType;
   }
   const VarDecl *NRVOCandidate = getCopyElisionCandidate(NRInfo, FnRetType);
 
@@ -3838,6 +3808,49 @@ bool Sema::DeduceFunctionTypeFromReturnExpr(FunctionDecl *FD,
   return false;
 }
 
+bool Sema::DeduceFunctionTypeFromReturnExpr(FunctionDecl *FD,
+                                            SourceLocation ReturnLoc,
+                                            Expr *&RetExpr,
+                                            const DeducedTemplateSpecializationType *DTST) {
+  if (FD->isDependentContext())
+    return false; // defer like 'auto'
+
+  IdentifierInfo &II = Context.Idents.get("__ctad_ret$");
+  QualType Placeholder = QualType(DTST, 0);
+  auto *Tmp = VarDecl::Create(Context, FD, ReturnLoc, ReturnLoc,
+                              &II, Placeholder, /*TInfo*/nullptr, SC_Auto);
+  Tmp->setTypeSourceInfo(Context.getTrivialTypeSourceInfo(Placeholder, ReturnLoc));
+  Tmp->setImplicit(true);
+
+  const bool DirectInit = isa<InitListExpr>(RetExpr);
+  AddInitializerToDecl(Tmp, RetExpr, DirectInit);
+
+  QualType Deduced = Tmp->getType();
+  if (Deduced->isUndeducedType())
+    return true;
+
+  if (getLangOpts().CUDA && FD->hasAttr<CUDAGlobalAttr>() && !Deduced->isVoidType()) {
+    Diag(FD->getLocation(), diag::err_kern_type_not_void_return)
+        << FD->getType() << FD->getSourceRange();
+    return true;
+  }
+
+  QualType Cur = FD->getReturnType();
+  if (!Cur->isUndeducedType()) {
+    if (!Context.hasSameType(Cur, Deduced)) {
+      Diag(ReturnLoc, diag::err_auto_fn_different_deductions)
+          << /*isdecltype(auto)=*/0 << Cur << Deduced;
+      return true;
+    }
+    return false;
+  }
+
+  if (!FD->isInvalidDecl())
+    Context.adjustDeducedFunctionResultType(FD, Deduced);
+
+  return false;
+}
+
 StmtResult
 Sema::ActOnReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
                       Scope *CurScope) {
@@ -4001,7 +4014,37 @@ StmtResult Sema::BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
         FnRetType = FD->getReturnType();
       }
     }
+
+    if (const DeducedType *DT = FnRetType->getContainedDeducedType()) {
+      if (const auto *DTST = dyn_cast<DeducedTemplateSpecializationType>(DT)) {
+
+        // Don’t interfere with implicit-return lambdas — they’re handled by the 'auto' path.
+        if (const auto *LSI = getCurLambda())
+          if (LSI->HasImplicitReturnType)
+            goto skip_dtst;
+
+        FunctionDecl *FD = cast<FunctionDecl>(CurContext);
+        // Try to deduce from this 'return <expr>;'
+        if (FD->isInvalidDecl() ||
+            DeduceFunctionTypeFromReturnExpr(FD, ReturnLoc, RetValExp, DTST)) {
+          FD->setInvalidDecl();
+          if (!AllowRecovery) return StmtError();
+          if (RetValExp) {
+            auto Recovery = CreateRecoveryExpr(RetValExp->getBeginLoc(),
+                                               RetValExp->getEndLoc(),
+                                               RetValExp, QualType());
+            if (Recovery.isInvalid()) return StmtError();
+            RetValExp = Recovery.get();
+          }
+        } else {
+          // success — FD now has a concrete return type (e.g. std::optional<int>)
+          FnRetType = FD->getReturnType();
+        }
+      }
+    }
   }
+skip_dtst:
+
   const VarDecl *NRVOCandidate = getCopyElisionCandidate(NRInfo, FnRetType);
 
   bool HasDependentReturnType = FnRetType->isDependentType();
