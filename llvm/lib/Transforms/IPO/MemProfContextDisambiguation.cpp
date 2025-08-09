@@ -99,6 +99,9 @@ STATISTIC(SkippedCallsCloning,
           "Number of calls skipped during cloning due to unexpected operand");
 STATISTIC(MismatchedCloneAssignments,
           "Number of callsites assigned to call multiple non-matching clones");
+STATISTIC(TotalMergeInvokes, "Number of merge invocations for nodes");
+STATISTIC(TotalMergeIters, "Number of merge iterations for nodes");
+STATISTIC(MaxMergeIters, "Max merge iterations for nodes");
 
 static cl::opt<std::string> DotFilePathPrefix(
     "memprof-dot-file-path-prefix", cl::init(""), cl::Hidden,
@@ -108,6 +111,11 @@ static cl::opt<std::string> DotFilePathPrefix(
 static cl::opt<bool> ExportToDot("memprof-export-to-dot", cl::init(false),
                                  cl::Hidden,
                                  cl::desc("Export graph to dot files."));
+
+// TODO: Remove this option once new handling is validated more widely.
+static cl::opt<bool> DoMergeIteration(
+    "memprof-merge-iteration", cl::init(true), cl::Hidden,
+    cl::desc("Iteratively apply merging on a node to catch new callers"));
 
 // How much of the graph to export to dot.
 enum DotScope {
@@ -732,7 +740,7 @@ private:
   /// of the functions tracked calls to their new versions in the CallMap.
   /// Assigns new clones to clone number CloneNo.
   FuncInfo cloneFunctionForCallsite(
-      FuncInfo &Func, CallInfo &Call, std::map<CallInfo, CallInfo> &CallMap,
+      FuncInfo &Func, CallInfo &Call, DenseMap<CallInfo, CallInfo> &CallMap,
       std::vector<CallInfo> &CallsWithMetadataInFunc, unsigned CloneNo) {
     return static_cast<DerivedCCG *>(this)->cloneFunctionForCallsite(
         Func, Call, CallMap, CallsWithMetadataInFunc, CloneNo);
@@ -899,7 +907,7 @@ private:
   CallsiteContextGraph<ModuleCallsiteContextGraph, Function,
                        Instruction *>::FuncInfo
   cloneFunctionForCallsite(FuncInfo &Func, CallInfo &Call,
-                           std::map<CallInfo, CallInfo> &CallMap,
+                           DenseMap<CallInfo, CallInfo> &CallMap,
                            std::vector<CallInfo> &CallsWithMetadataInFunc,
                            unsigned CloneNo);
   std::string getLabel(const Function *Func, const Instruction *Call,
@@ -991,7 +999,7 @@ private:
   CallsiteContextGraph<IndexCallsiteContextGraph, FunctionSummary,
                        IndexCall>::FuncInfo
   cloneFunctionForCallsite(FuncInfo &Func, CallInfo &Call,
-                           std::map<CallInfo, CallInfo> &CallMap,
+                           DenseMap<CallInfo, CallInfo> &CallMap,
                            std::vector<CallInfo> &CallsWithMetadataInFunc,
                            unsigned CloneNo);
   std::string getLabel(const FunctionSummary *Func, const IndexCall &Call,
@@ -3995,7 +4003,7 @@ IndexCallsiteContextGraph::getAllocationCallType(const CallInfo &Call) const {
 
 void ModuleCallsiteContextGraph::updateCall(CallInfo &CallerCall,
                                             FuncInfo CalleeFunc) {
-  auto *CurF = cast<CallBase>(CallerCall.call())->getCalledFunction();
+  auto *CurF = getCalleeFunc(CallerCall.call());
   auto NewCalleeCloneNo = CalleeFunc.cloneNo();
   if (isMemProfClone(*CurF)) {
     // If we already assigned this callsite to call a specific non-default
@@ -4062,7 +4070,7 @@ static void updateSubprogramLinkageName(Function *NewFunc, StringRef Name) {
 CallsiteContextGraph<ModuleCallsiteContextGraph, Function,
                      Instruction *>::FuncInfo
 ModuleCallsiteContextGraph::cloneFunctionForCallsite(
-    FuncInfo &Func, CallInfo &Call, std::map<CallInfo, CallInfo> &CallMap,
+    FuncInfo &Func, CallInfo &Call, DenseMap<CallInfo, CallInfo> &CallMap,
     std::vector<CallInfo> &CallsWithMetadataInFunc, unsigned CloneNo) {
   // Use existing LLVM facilities for cloning and obtaining Call in clone
   ValueToValueMapTy VMap;
@@ -4085,7 +4093,7 @@ ModuleCallsiteContextGraph::cloneFunctionForCallsite(
 CallsiteContextGraph<IndexCallsiteContextGraph, FunctionSummary,
                      IndexCall>::FuncInfo
 IndexCallsiteContextGraph::cloneFunctionForCallsite(
-    FuncInfo &Func, CallInfo &Call, std::map<CallInfo, CallInfo> &CallMap,
+    FuncInfo &Func, CallInfo &Call, DenseMap<CallInfo, CallInfo> &CallMap,
     std::vector<CallInfo> &CallsWithMetadataInFunc, unsigned CloneNo) {
   // Check how many clones we have of Call (and therefore function).
   // The next clone number is the current size of versions array.
@@ -4191,15 +4199,35 @@ void CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::mergeClones(
   if (!Inserted.second)
     return;
 
-  // Make a copy since the recursive call may move a caller edge to a new
-  // callee, messing up the iterator.
-  auto CallerEdges = Node->CallerEdges;
-  for (auto CallerEdge : CallerEdges) {
-    // Skip any caller edge moved onto a different callee during recursion.
-    if (CallerEdge->Callee != Node)
-      continue;
-    mergeClones(CallerEdge->Caller, Visited, ContextIdToAllocationNode);
+  // Iteratively perform merging on this node to handle new caller nodes created
+  // during the recursive traversal. We could do something more elegant such as
+  // maintain a worklist, but this is a simple approach that doesn't cause a
+  // measureable compile time effect, as most nodes don't have many caller
+  // edges to check.
+  bool FoundUnvisited = true;
+  unsigned Iters = 0;
+  while (FoundUnvisited) {
+    Iters++;
+    FoundUnvisited = false;
+    // Make a copy since the recursive call may move a caller edge to a new
+    // callee, messing up the iterator.
+    auto CallerEdges = Node->CallerEdges;
+    for (auto CallerEdge : CallerEdges) {
+      // Skip any caller edge moved onto a different callee during recursion.
+      if (CallerEdge->Callee != Node)
+        continue;
+      // If we found an unvisited caller, note that we should check the caller
+      // edges again as mergeClones may add or change caller nodes.
+      if (DoMergeIteration && !Visited.contains(CallerEdge->Caller))
+        FoundUnvisited = true;
+      mergeClones(CallerEdge->Caller, Visited, ContextIdToAllocationNode);
+    }
   }
+
+  TotalMergeInvokes++;
+  TotalMergeIters += Iters;
+  if (Iters > MaxMergeIters)
+    MaxMergeIters = Iters;
 
   // Merge for this node after we handle its callers.
   mergeNodeCalleeClones(Node, Visited, ContextIdToAllocationNode);
@@ -4500,14 +4528,24 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
     CallsiteToCalleeFuncCloneMap[Caller] = CalleeFunc;
   };
 
+  // Information for a single clone of this Func.
+  struct FuncCloneInfo {
+    // The function clone.
+    FuncInfo FuncClone;
+    // Remappings of each call of interest (from original uncloned call to the
+    // corresponding cloned call in this function clone).
+    DenseMap<CallInfo, CallInfo> CallMap;
+  };
+
   // Walk all functions for which we saw calls with memprof metadata, and handle
   // cloning for each of its calls.
   for (auto &[Func, CallsWithMetadata] : FuncToCallsWithMetadata) {
     FuncInfo OrigFunc(Func);
-    // Map from each clone of OrigFunc to a map of remappings of each call of
-    // interest (from original uncloned call to the corresponding cloned call in
-    // that function clone).
-    std::map<FuncInfo, std::map<CallInfo, CallInfo>> FuncClonesToCallMap;
+    // Map from each clone number of OrigFunc to information about that function
+    // clone (the function clone FuncInfo and call remappings). The index into
+    // the vector is the clone number, as function clones are created and
+    // numbered sequentially.
+    std::vector<FuncCloneInfo> FuncCloneInfos;
     for (auto &Call : CallsWithMetadata) {
       ContextNode *Node = getNodeForInst(Call);
       // Skip call if we do not have a node for it (all uses of its stack ids
@@ -4531,8 +4569,9 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
         // Record the clone of callsite node assigned to this function clone.
         FuncCloneToCurNodeCloneMap[FuncClone] = CallsiteClone;
 
-        assert(FuncClonesToCallMap.count(FuncClone));
-        std::map<CallInfo, CallInfo> &CallMap = FuncClonesToCallMap[FuncClone];
+        assert(FuncCloneInfos.size() > FuncClone.cloneNo());
+        DenseMap<CallInfo, CallInfo> &CallMap =
+            FuncCloneInfos[FuncClone.cloneNo()].CallMap;
         CallInfo CallClone(Call);
         if (auto It = CallMap.find(Call); It != CallMap.end())
           CallClone = It->second;
@@ -4571,10 +4610,10 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
         // than existing function clones, which would have been assigned to an
         // earlier clone in the list (we assign callsite clones to function
         // clones greedily).
-        if (FuncClonesToCallMap.size() < NodeCloneCount) {
+        if (FuncCloneInfos.size() < NodeCloneCount) {
           // If this is the first callsite copy, assign to original function.
           if (NodeCloneCount == 1) {
-            // Since FuncClonesToCallMap is empty in this case, no clones have
+            // Since FuncCloneInfos is empty in this case, no clones have
             // been created for this function yet, and no callers should have
             // been assigned a function clone for this callee node yet.
             assert(llvm::none_of(
@@ -4583,7 +4622,8 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
                 }));
             // Initialize with empty call map, assign Clone to original function
             // and its callers, and skip to the next clone.
-            FuncClonesToCallMap[OrigFunc] = {};
+            FuncCloneInfos.push_back(
+                {OrigFunc, DenseMap<CallInfo, CallInfo>()});
             AssignCallsiteCloneToFuncClone(
                 OrigFunc, Call, Clone,
                 AllocationCallToContextNodeMap.count(Call));
@@ -4615,14 +4655,14 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
           }
 
           // Clone function and save it along with the CallInfo map created
-          // during cloning in the FuncClonesToCallMap.
-          std::map<CallInfo, CallInfo> NewCallMap;
-          unsigned CloneNo = FuncClonesToCallMap.size();
+          // during cloning in the FuncCloneInfos.
+          DenseMap<CallInfo, CallInfo> NewCallMap;
+          unsigned CloneNo = FuncCloneInfos.size();
           assert(CloneNo > 0 && "Clone 0 is the original function, which "
                                 "should already exist in the map");
           FuncInfo NewFuncClone = cloneFunctionForCallsite(
               OrigFunc, Call, NewCallMap, CallsWithMetadata, CloneNo);
-          FuncClonesToCallMap.emplace(NewFuncClone, std::move(NewCallMap));
+          FuncCloneInfos.push_back({NewFuncClone, std::move(NewCallMap)});
           FunctionClonesAnalysis++;
           Changed = true;
 
@@ -4723,8 +4763,8 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
               // CallMap is set up as indexed by original Call at clone 0.
               CallInfo OrigCall(Callee->getOrigNode()->Call);
               OrigCall.setCloneNo(0);
-              std::map<CallInfo, CallInfo> &CallMap =
-                  FuncClonesToCallMap[NewFuncClone];
+              DenseMap<CallInfo, CallInfo> &CallMap =
+                  FuncCloneInfos[NewFuncClone.cloneNo()].CallMap;
               assert(CallMap.count(OrigCall));
               CallInfo NewCall(CallMap[OrigCall]);
               assert(NewCall);
@@ -4747,16 +4787,16 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
         }
 
         auto FindFirstAvailFuncClone = [&]() {
-          // Find first function in FuncClonesToCallMap without an assigned
+          // Find first function in FuncCloneInfos without an assigned
           // clone of this callsite Node. We should always have one
           // available at this point due to the earlier cloning when the
-          // FuncClonesToCallMap size was smaller than the clone number.
-          for (auto &CF : FuncClonesToCallMap) {
-            if (!FuncCloneToCurNodeCloneMap.count(CF.first))
-              return CF.first;
+          // FuncCloneInfos size was smaller than the clone number.
+          for (auto &CF : FuncCloneInfos) {
+            if (!FuncCloneToCurNodeCloneMap.count(CF.FuncClone))
+              return CF.FuncClone;
           }
-          assert(false &&
-                 "Expected an available func clone for this callsite clone");
+          llvm_unreachable(
+              "Expected an available func clone for this callsite clone");
         };
 
         // See if we can use existing function clone. Walk through
