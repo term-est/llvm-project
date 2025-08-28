@@ -367,6 +367,10 @@ Parser::ParseTemplateParameterList(const unsigned Depth,
     // Did we find a comma or the end of the template parameter list?
     if (Tok.is(tok::comma)) {
       ConsumeToken();
+
+      // if the next token closes the list, thsi is a trailing comma
+      if (Tok.isOneOf(tok::greater, tok::greatergreater)) // FIXME? seems about right.. do we need balancing of sorts?
+        break;
     } else if (Tok.isOneOf(tok::greater, tok::greatergreater)) {
       // Don't consume this... that's done by template parser.
       break;
@@ -1385,6 +1389,15 @@ bool Parser::ParseTemplateArgumentList(TemplateArgList &TemplateArgs,
   };
 
   do {
+
+    // if we are closing the template argument list, we're done.
+    // FIXME? abysmal dogshit below. this cant possibly be right,
+    //  we are using CUDA stuff too as an insult to injury
+    if (Tok.is(tok::greater) || Tok.is(tok::greatergreater) ||
+            Tok.is(tok::greatergreatergreater) || Tok.is(tok::greaterequal) ||
+            Tok.is(tok::greatergreaterequal))
+          break;
+
     PreferredType.enterFunctionArgument(Tok.getLocation(), RunSignatureHelp);
     ParsedTemplateArgument Arg = ParseTemplateArgument();
     SourceLocation EllipsisLoc;

@@ -6918,9 +6918,11 @@ void Parser::ParseDecompositionDeclarator(Declarator &D) {
   SmallVector<DecompositionDeclarator::Binding, 32> Bindings;
   while (Tok.isNot(tok::r_square)) {
     if (!Bindings.empty()) {
-      if (Tok.is(tok::comma))
+      if (Tok.is(tok::comma)) {
         ConsumeToken();
-      else {
+        if (Tok.is(tok::r_square)) // allow a trailing comma
+          break;
+      } else {
         if (Tok.is(tok::identifier)) {
           SourceLocation EndLoc = getEndOfPreviousToken();
           Diag(EndLoc, diag::err_expected)
@@ -7467,6 +7469,11 @@ void Parser::ParseParameterDeclarationClause(
     // before deciding this was a parameter-declaration-clause.
     if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
       break;
+
+    // If we see a ')', we're done.
+    if (Tok.is(tok::r_paren)) {
+      break; // caller consumes the ')'
+    }
 
     // Parse the declaration-specifiers.
     // Just use the ParsingDeclaration "scope" of the declarator.

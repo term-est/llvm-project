@@ -809,6 +809,13 @@ bool Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
   }
 
   while (Tok.isNot(tok::r_square)) {
+
+    // allow trailing comma
+    if (Tok.is(tok::comma) && NextToken().is(tok::r_square)) {
+      ConsumeToken();
+      break;
+    }
+
     if (!First) {
       if (Tok.isNot(tok::comma)) {
         // Provide a completion for a lambda introducer here. Except

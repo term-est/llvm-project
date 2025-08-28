@@ -3202,6 +3202,14 @@ bool Parser::ParseExpressionList(SmallVectorImpl<Expr *> &Exprs,
 
     if (Tok.isNot(tok::comma))
       break;
+
+    // allow trailing comma
+    if (NextToken().is(tok::r_paren) || NextToken().is(tok::r_square))
+    {
+      ConsumeToken();
+      break;
+    }
+
     // Move to the next argument, remember where the comma was.
     Token Comma = Tok;
     ConsumeToken();
