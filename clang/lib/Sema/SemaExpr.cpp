@@ -1723,6 +1723,12 @@ QualType Sema::UsualArithmeticConversions(ExprResult &LHS, ExprResult &RHS,
 //  Semantic Analysis for various Expression Types
 //===----------------------------------------------------------------------===//
 
+ExprResult Sema::ActOnNamedArgExpr(SourceLocation, SourceLocation,
+                                   IdentifierInfo *, Expr *Value) {
+  // Until the NamedArgExpr AST exists, just return the value as-is so parsing works.
+  return Value;
+}
+
 
 ExprResult Sema::ActOnGenericSelectionExpr(
     SourceLocation KeyLoc, SourceLocation DefaultLoc, SourceLocation RParenLoc,

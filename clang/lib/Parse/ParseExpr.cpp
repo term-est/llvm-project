@@ -1635,6 +1635,44 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
   return Res;
 }
 
+static bool isNamedCallArgAhead(Parser &P) {
+  if (!P.getCurToken().is(tok::period))
+    return false;
+
+  const Token &T1 = P.NextToken();             // after '.'
+  if (!T1.is(tok::identifier))
+    return false;
+
+  const Token &T2 = P.GetLookAheadToken(2);    // two ahead
+  return T2.is(tok::equal);
+}
+
+ExprResult Parser::ParseNamedCallArgument() {
+  assert(Tok.is(tok::period) && "expected '.' at start of named argument");
+  SourceLocation DotLoc = ConsumeToken(); // '.'
+
+  if (!Tok.is(tok::identifier)) {
+    Diag(Tok, diag::err_expected);
+    return ExprError();
+  }
+  IdentifierInfo *II = Tok.getIdentifierInfo();
+  SourceLocation NameLoc = Tok.getLocation();
+  ConsumeToken(); // identifier
+
+  if (!Tok.is(tok::equal)) {
+    Diag(Tok, diag::err_expected) << tok::equal;
+    return ExprError();
+  }
+  ConsumeToken(); // '='
+
+  ExprResult Val = ParseAssignmentExpression();
+  if (Val.isInvalid())
+    return ExprError();
+
+  // For now this can be a stub; imma add the real AST node later in SEMA/AST
+  return Actions.ActOnNamedArgExpr(DotLoc, NameLoc, II, Val.get());
+}
+
 ExprResult
 Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
   // Now that the primary-expression piece of the postfix-expression has been
@@ -1849,14 +1887,40 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       bool ExpressionListIsInvalid = false;
       if (OpKind == tok::l_paren || !LHS.isInvalid()) {
         if (Tok.isNot(tok::r_paren)) {
-          if ((ExpressionListIsInvalid = ParseExpressionList(ArgExprs, [&] {
-                 PreferredType.enterFunctionArgument(Tok.getLocation(),
-                                                     RunSignatureHelp);
-               }))) {
-            // If we got an error when parsing expression list, we don't call
-            // the CodeCompleteCall handler inside the parser. So call it here
-            // to make sure we get overload suggestions even when we are in the
-            // middle of a parameter.
+          bool HadError = false;
+          while (true) {
+            // signal signature-help preferred type for this arg slot
+            PreferredType.enterFunctionArgument(Tok.getLocation(), RunSignatureHelp);
+
+            ExprResult Arg;
+            if (isNamedCallArgAhead(*this)) {
+              Arg = ParseNamedCallArgument();
+            } else {
+              Arg = ParseAssignmentExpression();
+            }
+
+            if (Arg.isInvalid()) {
+              HadError = true;
+              // Try simple recovery: skip to ',' or ')'
+              SkipUntil(tok::comma, tok::r_paren, StopAtSemi | StopBeforeMatch);
+              // If the next token is a comma, consume it and attempt next arg
+              if (Tok.is(tok::comma)) {
+                ConsumeToken();
+                continue;
+              } else {
+                break; // likely at ')'
+              }
+            }
+
+            ArgExprs.push_back(Arg.get());
+
+            if (!Tok.is(tok::comma))
+              break;
+            ConsumeToken(); // ','
+          }
+
+          if (HadError) {
+            ExpressionListIsInvalid = true;
             if (PP.isCodeCompletionReached() && !CalledSignatureHelp)
               RunSignatureHelp();
           }

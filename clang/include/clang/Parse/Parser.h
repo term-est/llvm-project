@@ -3725,7 +3725,7 @@ public:
   /// \endverbatim
   ExprResult ParseExpression(TypoCorrectionTypeBehavior CorrectionBehavior =
                                  TypoCorrectionTypeBehavior::AllowNonTypes);
-
+  ExprResult ParseNamedCallArgument();
   ExprResult ParseConstantExpressionInExprEvalContext(
       TypoCorrectionTypeBehavior CorrectionBehavior =
           TypoCorrectionTypeBehavior::AllowNonTypes);

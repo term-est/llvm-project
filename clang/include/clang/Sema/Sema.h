@@ -5158,6 +5158,9 @@ public:
   void ActOnStartFunctionDeclarationDeclarator(Declarator &D,
                                                unsigned TemplateParameterDepth);
 
+
+  ExprResult ActOnNamedArgExpr(SourceLocation DotLoc, SourceLocation NameLoc,
+                               IdentifierInfo *Name, Expr *Value);
   /// Called after parsing a function declarator belonging to a function
   /// declaration.
   void ActOnFinishFunctionDeclarationDeclarator(Declarator &D);
