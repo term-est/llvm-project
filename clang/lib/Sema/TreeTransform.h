@@ -14199,6 +14199,20 @@ TreeTransform<Derived>::TransformCXXMemberCallExpr(CXXMemberCallExpr *E) {
   return getDerived().TransformCallExpr(E);
 }
 
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformNamedArgExpr(clang::NamedArgExpr *E){
+  ExprResult NewVal = getDerived().TransformExpr(E->getVal());
+  if (NewVal.isInvalid())
+    return ExprError();
+
+  // rbuild the node with the same name/locs and transformed value
+  return new (SemaRef.Context) NamedArgExpr(E->getDotLoc(),
+                                            E->getNameLoc(),
+                                            E->getName(),
+                                            NewVal.get());
+}
+
 template <typename Derived>
 ExprResult TreeTransform<Derived>::TransformSourceLocExpr(SourceLocExpr *E) {
   bool NeedRebuildFunc = SourceLocExpr::MayBeDependent(E->getIdentKind()) &&

@@ -2898,6 +2898,14 @@ DEF_TRAVERSE_STMT(CXXConstructExpr, {})
 DEF_TRAVERSE_STMT(CallExpr, {})
 DEF_TRAVERSE_STMT(CXXMemberCallExpr, {})
 
+DEF_TRAVERSE_STMT(NamedArgExpr, {
+  TRY_TO(WalkUpFromNamedArgExpr(S));
+
+  TRY_TO(TraverseStmt(S->getVal()));
+
+  return true;
+})
+
 // These exprs (most of them), do not need any action except iterating
 // over the children.
 DEF_TRAVERSE_STMT(AddrLabelExpr, {})

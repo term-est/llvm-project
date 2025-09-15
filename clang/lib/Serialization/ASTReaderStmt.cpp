@@ -1051,6 +1051,15 @@ void ASTStmtReader::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
   VisitCallExpr(E);
 }
 
+void ASTStmtReader::VisitNamedArgExpr(clang::NamedArgExpr *E) {
+  VisitExpr(E);
+
+  E->DotLoc = readSourceLocation();
+  E->NameLoc = readSourceLocation();
+  E->Name = Record.readIdentifier();
+  E->Val = Record.readSubExpr();
+}
+
 void ASTStmtReader::VisitMemberExpr(MemberExpr *E) {
   VisitExpr(E);
 

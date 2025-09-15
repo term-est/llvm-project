@@ -1648,28 +1648,39 @@ static bool isNamedCallArgAhead(Parser &P) {
 }
 
 ExprResult Parser::ParseNamedCallArgument() {
+//  if (!getLangOpts().NamedCallArgs)
+//    return ExprError();
+
   assert(Tok.is(tok::period) && "expected '.' at start of named argument");
   SourceLocation DotLoc = ConsumeToken(); // '.'
 
-  if (!Tok.is(tok::identifier)) {
-    Diag(Tok, diag::err_expected);
+  if (Tok.isNot(tok::identifier)) {
+    Diag(Tok, diag::err_expected) << tok::identifier;
     return ExprError();
   }
   IdentifierInfo *II = Tok.getIdentifierInfo();
-  SourceLocation NameLoc = Tok.getLocation();
-  ConsumeToken(); // identifier
+  SourceLocation NameLoc = ConsumeToken(); // identifier
 
-  if (!Tok.is(tok::equal)) {
-    Diag(Tok, diag::err_expected) << tok::equal;
+  if (ExpectAndConsume(tok::equal, diag::err_expected_after, "named argument"))
     return ExprError();
-  }
-  ConsumeToken(); // '='
 
-  ExprResult Val = ParseAssignmentExpression();
+  ExprResult Val;
+  if (Tok.is(tok::l_brace)) {
+    Val = ParseBraceInitializer();
+  } else {
+    Val = ParseAssignmentExpression();
+  }
   if (Val.isInvalid())
     return ExprError();
 
-  // For now this can be a stub; imma add the real AST node later in SEMA/AST
+  // pack expansion: .x = expr...
+  if (Tok.is(tok::ellipsis)) {
+    SourceLocation EllipsisLoc = ConsumeToken();
+    Val = Actions.ActOnPackExpansion(Val.get(), EllipsisLoc);
+    if (Val.isInvalid())
+      return ExprError();
+  }
+
   return Actions.ActOnNamedArgExpr(DotLoc, NameLoc, II, Val.get());
 }
 
@@ -1888,22 +1899,20 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
       if (OpKind == tok::l_paren || !LHS.isInvalid()) {
         if (Tok.isNot(tok::r_paren)) {
           bool HadError = false;
-          while (true) {
-            // signal signature-help preferred type for this arg slot
-            PreferredType.enterFunctionArgument(Tok.getLocation(), RunSignatureHelp);
-
+          for (;;) { // fixme: i am pretty sure something is wrong here
             ExprResult Arg;
-            if (isNamedCallArgAhead(*this)) {
+            if (getLangOpts().NamedCallArgs && isNamedCallArgAhead(*this))
               Arg = ParseNamedCallArgument();
-            } else {
+            else if (Tok.is(tok::l_brace))
+              Arg = ParseBraceInitializer();
+            else
               Arg = ParseAssignmentExpression();
-            }
 
             if (Arg.isInvalid()) {
               HadError = true;
-              // Try simple recovery: skip to ',' or ')'
+              // try simple recovery: skip to ',' or ')'
               SkipUntil(tok::comma, tok::r_paren, StopAtSemi | StopBeforeMatch);
-              // If the next token is a comma, consume it and attempt next arg
+              // ff the next token is a comma, consume it and attempt next arg
               if (Tok.is(tok::comma)) {
                 ConsumeToken();
                 continue;
@@ -1912,11 +1921,20 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
               }
             }
 
+            if (Tok.is(tok::ellipsis)) {
+              SourceLocation EllipsisLoc = ConsumeToken(); // '...'
+              Arg = Actions.ActOnPackExpansion(Arg.get(), EllipsisLoc);
+              if (Arg.isInvalid()) {
+                HadError = true;
+                // (optional) recover to next ',' or ')'
+                SkipUntil(tok::comma, tok::r_paren,
+                          StopAtSemi | StopBeforeMatch);
+              }
+            }
             ArgExprs.push_back(Arg.get());
 
-            if (!Tok.is(tok::comma))
+            if (!TryConsumeToken(tok::comma))
               break;
-            ConsumeToken(); // ','
           }
 
           if (HadError) {

@@ -1979,6 +1979,13 @@ void StmtProfiler::VisitCXXMemberCallExpr(const CXXMemberCallExpr *S) {
   VisitCallExpr(S);
 }
 
+void StmtProfiler::VisitNamedArgExpr(const clang::NamedArgExpr *S) {
+  VisitExpr(S);
+  IdentifierInfo *II = S->getName();
+  ID.AddString(II ? II->getName() : "");
+  Visit(S->getVal());
+}
+
 void StmtProfiler::VisitCUDAKernelCallExpr(const CUDAKernelCallExpr *S) {
   VisitCallExpr(S);
 }

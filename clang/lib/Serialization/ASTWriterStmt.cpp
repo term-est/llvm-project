@@ -1719,6 +1719,15 @@ void ASTStmtWriter::VisitCXXMemberCallExpr(CXXMemberCallExpr *E) {
   Code = serialization::EXPR_CXX_MEMBER_CALL;
 }
 
+void ASTStmtWriter::VisitNamedArgExpr(clang::NamedArgExpr *E) {
+  VisitExpr(E);
+
+  Record.AddSourceLocation(E->getDotLoc());
+  Record.AddSourceLocation(E->getNameLoc());
+  Record.AddIdentifierRef(E->getName());
+  Record.AddStmt(E->getVal());
+}
+
 void ASTStmtWriter::VisitCXXRewrittenBinaryOperator(
     CXXRewrittenBinaryOperator *E) {
   VisitExpr(E);

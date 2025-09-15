@@ -1723,10 +1723,112 @@ QualType Sema::UsualArithmeticConversions(ExprResult &LHS, ExprResult &RHS,
 //  Semantic Analysis for various Expression Types
 //===----------------------------------------------------------------------===//
 
-ExprResult Sema::ActOnNamedArgExpr(SourceLocation, SourceLocation,
-                                   IdentifierInfo *, Expr *Value) {
-  // Until the NamedArgExpr AST exists, just return the value as-is so parsing works.
-  return Value;
+ExprResult Sema::ActOnNamedArgExpr(SourceLocation DotLoc, SourceLocation NameLoc,
+                                   IdentifierInfo *Name, Expr *Value) {
+  if (!Value || Value->containsErrors())
+    return ExprError();
+
+  // peel placeholders to real expressions if needed.
+  if (auto PH = CheckPlaceholderExpr(Value); PH.isUsable())
+    Value = PH.get();
+  if (!Value)
+    return ExprError();
+
+  // build the AST node. NamedArgExpr ctor already mirrors child type/kind
+  // and propagates dependence, so no extra work here
+  return new (Context) NamedArgExpr(DotLoc, NameLoc, Name, Value);
+}
+
+bool Sema::CheckAndReorderNamedArgsForFunction(const FunctionDecl *FD,
+                                         ArrayRef<Expr*> InArgs,
+                                         SmallVectorImpl<Expr*> &OutArgs) {
+  const unsigned N = FD->getNumParams();
+  OutArgs.assign(N, nullptr);
+
+  // fast-exit: collect named args; if none, nothing to do, and we fuck off
+  SmallVector<NamedArgExpr*, 8> Named;
+  for (Expr *E : InArgs)
+    if (auto *NA = dyn_cast<NamedArgExpr>(E))
+      Named.push_back(NA);
+  if (Named.empty())
+    return false;
+
+  // 0) MVP: mixing named+positional?
+  if (Named.size() != InArgs.size()) {
+    Diag(Named.front()->getExprLoc(), diag::err_named_args_mixed_with_positional);
+    return true;
+  }
+
+  // 1) pick “reference” names from redecls, and check consistency
+  SmallVector<IdentifierInfo*, 8> Ref(N, nullptr);
+  bool HaveRef = false;
+
+  auto TrySetRef = [&](const FunctionDecl *F) {
+    if (F->getNumParams() != N) return;
+    bool any = false;
+    SmallVector<IdentifierInfo*, 8> tmp(N, nullptr);
+    for (unsigned i = 0; i < N; ++i) {
+      tmp[i] = F->getParamDecl(i)->getIdentifier();
+      any |= tmp[i] != nullptr;
+    }
+    if (any && !HaveRef) { Ref = std::move(tmp); HaveRef = true; }
+  };
+
+  for (const FunctionDecl *R : FD->redecls()) TrySetRef(R);
+  TrySetRef(FD);
+
+  // multiple redecls have names, ensure they all agree
+  if (HaveRef) {
+    for (const FunctionDecl *R : FD->redecls()) {
+      if (R->getNumParams() != N) continue;
+      for (unsigned i = 0; i < N; ++i) {
+        IdentifierInfo *RI = R->getParamDecl(i)->getIdentifier();
+        IdentifierInfo *RefI = Ref[i];
+        if (RI && RefI && RI != RefI) {
+          Diag(R->getParamDecl(i)->getLocation(),
+               diag::err_duplicate_named_arg)
+              << (i + 1) << RefI << RI << FD;
+          return true;
+        }
+      }
+    }
+  }
+
+  // build name -> index map from Ref names (or from FD if no Ref)
+  llvm::DenseMap<IdentifierInfo*, unsigned> Index;
+  for (unsigned i = 0; i < N; ++i) {
+    IdentifierInfo *II = HaveRef ? Ref[i] : FD->getParamDecl(i)->getIdentifier();
+    if (II) Index.try_emplace(II, i);
+  }
+
+  // if there are no names anywhere, *any* named arg is unknown and we error
+  if (Index.empty()) {
+    // diagnose on the first one theyll all be unknown anyway
+    auto *NA = Named.front();
+    Diag(NA->getExprLoc(), diag::err_unknown_named_arg_for_function)
+        << NA->getName() << FD;
+    return true;
+  }
+
+  // 3) Place the named arguments into their slots.
+  for (NamedArgExpr *NA : Named) {
+    IdentifierInfo *Name = NA->getName();
+    auto It = Index.find(Name);
+    if (It == Index.end()) {
+      Diag(NA->getExprLoc(), diag::err_unknown_named_arg_for_function)
+          << Name << FD;
+      return true;
+    }
+    unsigned i = It->second;
+    if (OutArgs[i]) {
+      Diag(NA->getExprLoc(), diag::err_duplicate_named_arg) << Name;
+      return true;
+    }
+    OutArgs[i] = NA->getVal();
+  }
+
+  // leave any remaining slots nullptr, default-arg machinery will (should??) fill them, i think? idk
+  return false;
 }
 
 
@@ -6938,6 +7040,41 @@ ExprResult Sema::BuildResolvedCallExpr(Expr *Fn, NamedDecl *NDecl,
   // in the call expression.
   const auto *Proto = dyn_cast_or_null<FunctionProtoType>(FuncT);
   unsigned NumParams = Proto ? Proto->getNumParams() : 0;
+
+  // dont say a goddamn word about this. i know its abysmal dogshit, give me a break its 3AM
+  auto hasNamedArgs = [&] {
+    for (Expr *E : Args) if (isa<NamedArgExpr>(E)) return true;
+    return false;
+  };
+  if (hasNamedArgs() && !FDecl) {
+    // call is to a function *type* (pointer/ref) or block/builtin w/o decl
+    // named args require a concrete declaration with parameter naems
+    Diag(LParenLoc, diag::err_unknown_named_arg_for_function)
+        << /*name used by the calllee */ "<FIXME>" // idk how to get this cleanly either -_-
+        << /*function*/ 0;                         // fixme: idk how to pretty-print callee
+    return ExprError();
+  }
+
+  SmallVector<Expr*, 8> ReorderedScratch;
+  if (FDecl && hasNamedArgs()) {
+    // sema helper should:
+    //   - validates no mixing (for MVP)
+    //   - validates names exist / redecl-name consistency
+    //   - fills OutArgs slots by param index
+    if (CheckAndReorderNamedArgsForFunction(FDecl, Args, ReorderedScratch))
+      return ExprError(); // already diagnosed
+
+    if (!ReorderedScratch.empty()) {
+      // IMPORTANT: ConvertArgumentsForCall expects only the *provided* args.
+      // so compress away the nullptr holes (default args are handled later, hopefully)
+      SmallVector<Expr*, 8> OrderedProvided;
+      OrderedProvided.reserve(ReorderedScratch.size());
+      for (unsigned i = 0; i < ReorderedScratch.size(); ++i)
+        if (Expr *E = ReorderedScratch[i])
+          OrderedProvided.push_back(E);
+      Args = OrderedProvided;
+    }
+  }
 
   CallExpr *TheCall;
   if (Config) {

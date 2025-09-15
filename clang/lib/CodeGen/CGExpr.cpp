@@ -1792,6 +1792,8 @@ LValue CodeGenFunction::EmitLValueHelper(const Expr *E,
   case Expr::CXXAddrspaceCastExprClass:
   case Expr::ObjCBridgedCastExprClass:
     return EmitCastLValue(cast<CastExpr>(E));
+  case Expr::NamedArgExprClass:
+      return EmitLValue(cast<NamedArgExpr>(E)->getVal(), IsKnownNonNull);
 
   case Expr::MaterializeTemporaryExprClass:
     return EmitMaterializeTemporaryExpr(cast<MaterializeTemporaryExpr>(E));

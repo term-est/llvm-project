@@ -63,7 +63,6 @@ class IdentifierInfo;
 class LambdaCapture;
 class NonTypeTemplateParmDecl;
 class TemplateParameterList;
-
 //===--------------------------------------------------------------------===//
 // C++ Expressions.
 //===--------------------------------------------------------------------===//
@@ -5491,6 +5490,44 @@ public:
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == BuiltinBitCastExprClass;
   }
+};
+
+class NamedArgExpr final : public Expr {
+  friend class ASTStmtReader;
+  friend class ASTStmtWriter;
+
+  IdentifierInfo *Name{};
+  Stmt *Val{};
+  SourceLocation DotLoc{};
+  SourceLocation NameLoc{};
+public:
+  NamedArgExpr(SourceLocation DotLoc, SourceLocation NameLoc,
+               IdentifierInfo *II, Expr *Value)
+      : Expr(NamedArgExprClass, Value->getType(), Value->getValueKind(),
+             Value->getObjectKind()), Name(II), Val(Value) {
+    setDependence(this->getVal()->getDependence());
+  }
+
+  IdentifierInfo* getName() const { return Name; }
+  Expr* getVal() const { return cast<Expr>(Val); }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == NamedArgExprClass;
+  }
+
+  child_range children() { return child_range(&Val, &Val + 1); }
+  const_child_range children() const {
+    return const_child_range(&Val, &Val + 1);
+  }
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return DotLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    auto V = getVal();
+    return V ? V->getEndLoc() : NameLoc;
+  }
+
+  SourceLocation getDotLoc() const { return DotLoc; }
+  SourceLocation getNameLoc() const { return NameLoc; }
 };
 
 } // namespace clang

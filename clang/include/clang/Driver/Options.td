@@ -8592,6 +8592,11 @@ def fexperimental_max_bitint_width_EQ:
   HelpText<"Set the maximum bitwidth for _BitInt (this option is expected to be removed in the future)">,
   MarshallingInfoInt<LangOpts<"MaxBitIntWidth">>;
 
+def fexperimental_named_params
+: Flag<["-"], "fexperimental-named-params">,
+  HelpText<"Enable experimental named call arguments (.x=expr)">,
+  MarshallingInfoFlag<LangOpts<"NamedCallArgs">>;
+
 } // let Visibility = [CC1Option]
 
 //===----------------------------------------------------------------------===//

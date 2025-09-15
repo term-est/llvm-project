@@ -194,6 +194,18 @@ def warn_double_const_requires_fp64 : Warning<
 def err_half_const_requires_fp16 : Error<
   "half precision constant requires cl_khr_fp16">;
 
+// named-argument diags
+  def err_named_args_mixed_with_positional : Error<
+    "cannot mix named and positional arguments (experimental named arguments)">;
+  def err_unknown_named_arg_for_function : Error<
+    "no parameter named %0 in %1">;
+  def err_duplicate_named_arg : Error<
+    "duplicate named argument %0">;
+  def note_function_param_names_are : Note<
+    "parameter names are: %0">;
+  def err_named_args_unsupported_here : Error<
+    "named arguments not yet supported for this callee">;
+
 // C99 variable-length arrays
 def ext_vla : Extension<"variable length arrays are a C99 feature">,
   InGroup<VLAExtension>;

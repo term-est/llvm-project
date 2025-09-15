@@ -2090,6 +2090,12 @@ void StmtPrinter::VisitCXXMemberCallExpr(CXXMemberCallExpr *Node) {
   VisitCallExpr(cast<CallExpr>(Node));
 }
 
+void StmtPrinter::VisitNamedArgExpr(clang::NamedArgExpr *Node) {
+  IdentifierInfo *II = Node->getName();
+  OS << '.' << (II ? II->getName() : "<anonymous>") << " = ";
+  PrintExpr(Node->getVal());
+}
+
 void StmtPrinter::VisitCUDAKernelCallExpr(CUDAKernelCallExpr *Node) {
   PrintExpr(Node->getCallee());
   OS << "<<<";

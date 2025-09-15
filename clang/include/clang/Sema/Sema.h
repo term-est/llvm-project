@@ -5213,7 +5213,11 @@ public:
                                        SourceLocation Loc,
                                        ComparisonCategoryUsage Usage);
 
-  /// Tests whether Ty is an instance of std::initializer_list and, if
+  bool CheckAndReorderNamedArgsForFunction(const FunctionDecl *FD,
+                                           ArrayRef<Expr*> InArgs,
+                                           SmallVectorImpl<Expr*> &OutArgs);
+
+      /// Tests whether Ty is an instance of std::initializer_list and, if
   /// it is and Element is not NULL, assigns the element type to Element.
   bool isStdInitializerList(QualType Ty, QualType *Element);
 

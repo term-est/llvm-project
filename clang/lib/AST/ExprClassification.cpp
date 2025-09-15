@@ -416,6 +416,10 @@ static Cl::Kinds ClassifyInternal(ASTContext &Ctx, const Expr *E) {
     return ClassifyConditional(Ctx, co->getTrueExpr(), co->getFalseExpr());
   }
 
+  case Expr::NamedArgExprClass: {
+    return ClassifyInternal(Ctx, cast<NamedArgExpr>(E)->getVal());
+  }
+
     // ObjC message sends are effectively function calls, if the target function
     // is known.
   case Expr::ObjCMessageExprClass:
