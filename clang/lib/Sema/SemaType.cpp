@@ -3301,17 +3301,8 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       Error = 12; // Type alias
       break;
     case DeclaratorContext::TrailingReturn:
-    case DeclaratorContext::TrailingReturnVar: {
-      bool IsDTST = isa<DeducedTemplateSpecializationType>(Deduced);
-
-      if (!SemaRef.getLangOpts().CPlusPlus14 || !IsCXXAutoType) {
-        // Permit DTST here under your flag, otherwise error.
-      }
-
-      // IMPORTANT: keep this only for true C++ 'auto' cases.
-      IsDeducedReturnType = IsCXXAutoType;
+    case DeclaratorContext::TrailingReturnVar:
       break;
-    }
     case DeclaratorContext::ConversionId:
       if (!SemaRef.getLangOpts().CPlusPlus14 || !IsCXXAutoType)
         Error = 14; // conversion-type-id
@@ -3347,6 +3338,9 @@ static QualType GetDeclSpecTypeForDeclarator(TypeProcessingState &state,
       Error = 18; // K&R function parameter
       break;
     }
+
+    if (D.isFunctionDeclarator() && isa<DeducedTemplateSpecializationType>(Deduced))
+      IsDeducedReturnType = true;
 
     if (D.getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_typedef)
       Error = 11;
@@ -4329,7 +4323,7 @@ static TypeSourceInfo *GetFullTypeForDeclarator(TypeProcessingState &state,
         case DeclaratorChunk::Function: {
           if (IsClassTemplateDeduction) {
             DiagKind = 3;
-            break;
+            continue;
           }
           unsigned FnIndex;
           if (D.isFunctionDeclarationContext() &&
