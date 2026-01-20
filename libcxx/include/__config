@@ -1008,6 +1008,12 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_RELEASE_SHARED_CAPABILITY
 #  endif
 
+#  if __has_cpp_attribute(_Clang::__structural__)
+#    define _LIBCPP_STRUCTURAL [[_Clang::__structural__]]
+#  else
+#    define _LIBCPP_STRUCTURAL
+#  endif
+
 #  if __has_attribute(__requires_capability__)
 #    define _LIBCPP_REQUIRES_CAPABILITY(...) __attribute__((__requires_capability__(__VA_ARGS__)))
 #  else

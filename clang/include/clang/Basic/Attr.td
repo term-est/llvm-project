@@ -1030,6 +1030,14 @@ def AnnotateType : TypeAttr {
   let Documentation = [AnnotateTypeDocs];
 }
 
+def Structural : InheritableAttr {
+  let Spellings = [Clang<"structural">];
+  let Subjects = SubjectList<[CXXRecord]>;
+  let Documentation = [Undocumented];
+  let LangOpts = [CPlusPlus];
+  let SimpleHandler = 1;
+}
+
 def ARMInterrupt : InheritableAttr, TargetSpecificAttr<TargetARM> {
   // NOTE: If you add any additional spellings, M68kInterrupt's,
   // MSP430Interrupt's, MipsInterrupt's and AnyX86Interrupt's spellings

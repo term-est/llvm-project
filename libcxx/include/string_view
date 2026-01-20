@@ -280,7 +280,7 @@ __char_traits_length_checked(const typename _Traits::char_type* __s) _NOEXCEPT {
 }
 
 template <class _CharT, class _Traits>
-class basic_string_view {
+class _LIBCPP_STRUCTURAL basic_string_view {
 public:
   // types
   using traits_type     = _Traits;

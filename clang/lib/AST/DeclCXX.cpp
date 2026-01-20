@@ -1012,7 +1012,8 @@ void CXXRecordDecl::addedMember(Decl *D) {
       // C++20 [temp.param]p7:
       //   A structural type is [...] a literal class type [for which] all
       //   non-static data members are public
-      data().StructuralIfLiteral = false;
+      if (!hasAttr<StructuralAttr>())
+        data().StructuralIfLiteral = false;
     }
 
     // Track whether this is the first field. We use this when checking

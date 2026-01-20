@@ -1932,6 +1932,11 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
     return;
   }
 
+    if (T->getAttrKind() == attr::Structural) {
+    OS << " [[clang::structural]]";
+    return;
+  }
+
   if (T->getAttrKind() == attr::ArmStreaming) {
     OS << "__arm_streaming";
     return;
