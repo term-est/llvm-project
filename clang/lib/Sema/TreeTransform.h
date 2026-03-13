@@ -3421,6 +3421,16 @@ public:
     return getSema().BuildBuiltinBitCastExpr(KWLoc, TSI, Sub, RParenLoc);
   }
 
+  /// Build a new C++ __builtin_bit_cast_zero_pad expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildBuiltinBitCastZeroPadExpr(SourceLocation KWLoc,
+                                     TypeSourceInfo *TSI, Expr *Sub,
+                                     SourceLocation RParenLoc) {
+    return getSema().BuildBuiltinBitCastZeroPadExpr(KWLoc, TSI, Sub, RParenLoc);
+  }
+
   /// Build a new C++ typeid(type) expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
@@ -14498,7 +14508,8 @@ TreeTransform<Derived>::TransformCXXNamedCastExpr(CXXNamedCastExpr *E) {
 
 template<typename Derived>
 ExprResult
-TreeTransform<Derived>::TransformBuiltinBitCastExpr(BuiltinBitCastExpr *BCE) {
+TreeTransform<Derived>::
+  TransformBuiltinBitCastExpr(BuiltinBitCastExpr *BCE) {
   TypeSourceInfo *TSI =
       getDerived().TransformType(BCE->getTypeInfoAsWritten());
   if (!TSI)
@@ -14508,7 +14519,9 @@ TreeTransform<Derived>::TransformBuiltinBitCastExpr(BuiltinBitCastExpr *BCE) {
   if (Sub.isInvalid())
     return ExprError();
 
-  return getDerived().RebuildBuiltinBitCastExpr(BCE->getBeginLoc(), TSI,
+  return BCE->isZeroPad() ? getDerived().RebuildBuiltinBitCastZeroPadExpr(BCE->getBeginLoc(), TSI,
+                                                Sub.get(), BCE->getEndLoc())
+  : getDerived().RebuildBuiltinBitCastExpr(BCE->getBeginLoc(), TSI,
                                                 Sub.get(), BCE->getEndLoc());
 }
 
