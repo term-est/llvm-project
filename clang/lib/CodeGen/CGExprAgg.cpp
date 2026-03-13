@@ -804,6 +804,80 @@ static Expr *findPeephole(Expr *op, CastKind kind, const ASTContext &ctx) {
   return nullptr;
 }
 
+static void markBits(llvm::APInt &Mask, uint64_t FirstBit, uint64_t Count) {
+  for (uint64_t I = 0; I < Count; ++I)
+    Mask.setBit(FirstBit + I);
+}
+
+static void buildValueBitsMaskRec(ASTContext &Ctx, QualType T,
+                                  uint64_t BaseBit,
+                                  llvm::APInt &Mask) {
+  T = T.getCanonicalType().getUnqualifiedType();
+
+  // traverse into each element at its storage stride.
+  if (const auto *AT = Ctx.getAsArrayType(T)) {
+    const Type *ElemTy = AT->getElementType().getTypePtr();
+    QualType ElemQT(ElemTy, 0);
+    uint64_t ElemBits = Ctx.getTypeSize(ElemQT);
+
+    if (const auto *CAT = dyn_cast<ConstantArrayType>(AT)) {
+      uint64_t N = CAT->getZExtSize();
+      for (uint64_t I = 0; I < N; ++I)
+        buildValueBitsMaskRec(Ctx, ElemQT, BaseBit + I * ElemBits, Mask);
+      return;
+    }
+
+    // unsupported for non-constant arrays, do we even support those? ArrayType exists afterall, i gotta investigate it
+    return;
+  }
+
+  // mark each fields occupied bit, not the holes between them
+  if (const auto *RT = T->getAs<RecordType>()) {
+    const RecordDecl *RD = RT->getDecl()->getDefinition();
+    if (!RD)
+      return;
+
+    // Force layout computation; useful if you later need more info.
+    (void)Ctx.getASTRecordLayout(RD);
+
+    // reject unions, we are gonna deal with that in cexpr path with is_within_lifetime when i am smart enough to
+    // implement that
+    if (RD->isUnion())
+      return;
+
+    for (const FieldDecl *FD : RD->fields()) {
+      if (FD->isZeroLengthBitField() || FD->isZeroSize(Ctx))
+        continue;
+
+      uint64_t Off = BaseBit + Ctx.getFieldOffset(FD);
+
+      if (FD->isBitField()) {
+        if (FD->hasConstantIntegerBitWidth())
+          markBits(Mask, Off, FD->getBitWidthValue());
+        continue;
+      }
+
+      buildValueBitsMaskRec(Ctx, FD->getType(), Off, Mask);
+    }
+    return;
+  }
+
+  // scalars / enums / pointers / vectors:
+  // for a first pass, treat all storage bits as meaningful
+  // this is not perfect for every exotic target / type, but it gets shit done for now
+  markBits(Mask, BaseBit, Ctx.getTypeSize(T));
+}
+
+llvm::Constant *buildValueBitsMask(CodeGenFunction &CGF, QualType T) {
+  ASTContext &Ctx = CGF.getContext();
+  uint64_t BitWidth = Ctx.getTypeSize(T);
+
+  llvm::APInt Mask(BitWidth, 0);
+  buildValueBitsMaskRec(Ctx, T, 0, Mask);
+
+  return llvm::ConstantInt::get(CGF.Builder.getIntNTy(BitWidth), Mask);
+}
+
 void AggExprEmitter::VisitCastExpr(CastExpr *E) {
   if (const auto *ECE = dyn_cast<ExplicitCastExpr>(E))
     CGF.CGM.EmitExplicitCastExprType(ECE, &CGF);
@@ -850,10 +924,36 @@ void AggExprEmitter::VisitCastExpr(CastExpr *E) {
     LValue SourceLV = CGF.EmitLValue(E->getSubExpr());
     Address SourceAddress = SourceLV.getAddress().withElementType(CGF.Int8Ty);
     Address DestAddress = Dest.getAddress().withElementType(CGF.Int8Ty);
-    llvm::Value *SizeVal = llvm::ConstantInt::get(
-        CGF.SizeTy,
-        CGF.getContext().getTypeSizeInChars(E->getType()).getQuantity());
+
+    if (auto CastExpr = dyn_cast<BuiltinBitCastExpr>(E); CastExpr && not CastExpr->isZeroPad()) {
+      llvm::Value *SizeVal = llvm::ConstantInt::get(
+          CGF.SizeTy,
+          CGF.getContext().getTypeSizeInChars(E->getType()).getQuantity());
+      Builder.CreateMemCpy(DestAddress, SourceAddress, SizeVal);
+      break;
+    }
+
+    QualType DestTy = E->getType();
+    uint64_t Size = CGF.getContext().getTypeSizeInChars(DestTy).getQuantity();
+    llvm::Value *SizeVal = llvm::ConstantInt::get(CGF.SizeTy, Size);
+
     Builder.CreateMemCpy(DestAddress, SourceAddress, SizeVal);
+
+    uint64_t BitWidth = CGF.getContext().getTypeSize(DestTy);
+    llvm::IntegerType *IntTy = Builder.getIntNTy(BitWidth);
+
+    Address IntDest = Dest.getAddress().withElementType(IntTy);
+    llvm::Value *Bits = Builder.CreateLoad(IntDest);
+
+    QualType SrcTy = E->getSubExpr()->getType();
+
+    llvm::Constant *SrcMask  = buildValueBitsMask(CGF, SrcTy);
+    llvm::Constant *DestMask = buildValueBitsMask(CGF, DestTy);
+    llvm::Value *Mask = Builder.CreateAnd(SrcMask, DestMask);
+
+    Bits = Builder.CreateAnd(Bits, Mask);
+
+    Builder.CreateStore(Bits, IntDest);
     break;
   }
 

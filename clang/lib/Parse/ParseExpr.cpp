@@ -1273,6 +1273,11 @@ Parser::ParseCastExpression(CastParseKind ParseKind, bool isAddressOfOperand,
       *NotPrimaryExpression = true;
     Res = ParseBuiltinBitCast();
     break;
+  case tok::kw___builtin_bit_cast_zero_pad:
+    if (NotPrimaryExpression)
+      *NotPrimaryExpression = true;
+    Res = ParseBuiltinBitCastZeroPad();
+    break;
   case tok::kw_typeid:
     if (NotPrimaryExpression)
       *NotPrimaryExpression = true;

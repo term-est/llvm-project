@@ -5481,6 +5481,7 @@ class BuiltinBitCastExpr final
 
   SourceLocation KWLoc;
   SourceLocation RParenLoc;
+  bool zero_pad{};
 
 public:
   BuiltinBitCastExpr(QualType T, ExprValueKind VK, CastKind CK, Expr *SrcExpr,
@@ -5494,6 +5495,9 @@ public:
 
   SourceLocation getBeginLoc() const LLVM_READONLY { return KWLoc; }
   SourceLocation getEndLoc() const LLVM_READONLY { return RParenLoc; }
+
+  void setZeroPad(bool Value) { zero_pad = Value; }
+  bool isZeroPad() const { return zero_pad; }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == BuiltinBitCastExprClass;

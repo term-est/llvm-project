@@ -455,6 +455,39 @@ ExprResult Sema::BuildBuiltinBitCastExpr(SourceLocation KWLoc,
   return Op.complete(BCE);
 }
 
+ExprResult Sema::ActOnBuiltinBitCastZeroPadExpr(SourceLocation KWLoc, Declarator &D,
+                                         ExprResult Operand,
+                                         SourceLocation RParenLoc) {
+  assert(!D.isInvalidType());
+
+  TypeSourceInfo *TInfo = GetTypeForDeclaratorCast(D, Operand.get()->getType());
+  if (D.isInvalidType())
+    return ExprError();
+
+  return BuildBuiltinBitCastZeroPadExpr(KWLoc, TInfo, Operand.get(), RParenLoc);
+}
+
+ExprResult Sema::BuildBuiltinBitCastZeroPadExpr(SourceLocation KWLoc,
+                                         TypeSourceInfo *TSI, Expr *Operand,
+                                         SourceLocation RParenLoc) {
+  CastOperation Op(*this, TSI->getType(), Operand);
+  Op.OpRange = CastOperation::OpRangeType(KWLoc, KWLoc, RParenLoc);
+  TypeLoc TL = TSI->getTypeLoc();
+  Op.DestRange = SourceRange(TL.getBeginLoc(), TL.getEndLoc());
+
+  if (!Operand->isTypeDependent() && !TSI->getType()->isDependentType()) {
+    Op.CheckBuiltinBitCast();
+    if (Op.SrcExpr.isInvalid())
+      return ExprError();
+  }
+
+  BuiltinBitCastExpr *BCE =
+      new (Context) BuiltinBitCastExpr(Op.ResultType, Op.ValueKind, Op.Kind,
+                                       Op.SrcExpr.get(), TSI, KWLoc, RParenLoc);
+  BCE->setZeroPad(true);
+  return Op.complete(BCE);
+}
+
 /// Try to diagnose a failed overloaded cast.  Returns true if
 /// diagnostics were emitted.
 static bool tryDiagnoseOverloadedCast(Sema &S, CastType CT,

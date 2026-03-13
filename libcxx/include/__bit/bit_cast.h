@@ -26,6 +26,7 @@ template <class _ToType, class _FromType>
   return __builtin_bit_cast(_ToType, __from);
 }
 
+
 #endif // _LIBCPP_CXX03_LANG
 
 #if _LIBCPP_STD_VER >= 20
@@ -38,6 +39,17 @@ template <class _ToType, class _FromType>
 }
 
 #endif // _LIBCPP_STD_VER >= 20
+
+#if _LIBCPP_STD_VER >= 26
+
+template <class _ToType, class _FromType>
+  requires(sizeof(_ToType) == sizeof(_FromType) && is_trivially_copyable_v<_ToType> &&
+           is_trivially_copyable_v<_FromType>)
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _ToType bit_cast_zero_pad(const _FromType& __from) noexcept {
+  return __builtin_bit_cast_zero_pad(_ToType, __from);
+}
+
+#endif // _LIBCPP_STD_VER >= 26
 
 _LIBCPP_END_NAMESPACE_STD
 

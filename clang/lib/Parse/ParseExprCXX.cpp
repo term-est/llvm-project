@@ -3745,3 +3745,37 @@ ExprResult Parser::ParseBuiltinBitCast() {
   return Actions.ActOnBuiltinBitCastExpr(KWLoc, DeclaratorInfo, Operand,
                                          T.getCloseLocation());
 }
+
+ExprResult Parser::ParseBuiltinBitCastZeroPad() {
+  SourceLocation KWLoc = ConsumeToken();
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.expectAndConsume(diag::err_expected_lparen_after, "__builtin_bit_cast_zero_pad"))
+    return ExprError();
+
+  // Parse the common declaration-specifiers piece.
+  DeclSpec DS(AttrFactory);
+  ParseSpecifierQualifierList(DS);
+
+  // Parse the abstract-declarator, if present.
+  Declarator DeclaratorInfo(DS, ParsedAttributesView::none(),
+                            DeclaratorContext::TypeName);
+  ParseDeclarator(DeclaratorInfo);
+
+  if (ExpectAndConsume(tok::comma)) {
+    Diag(Tok.getLocation(), diag::err_expected) << tok::comma;
+    SkipUntil(tok::r_paren, StopAtSemi);
+    return ExprError();
+  }
+
+  ExprResult Operand = ParseExpression();
+
+  if (T.consumeClose())
+    return ExprError();
+
+  if (Operand.isInvalid() || DeclaratorInfo.isInvalidType())
+    return ExprError();
+
+  return Actions.ActOnBuiltinBitCastZeroPadExpr(KWLoc, DeclaratorInfo, Operand,
+                                         T.getCloseLocation());
+}

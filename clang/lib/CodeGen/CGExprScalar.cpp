@@ -2534,6 +2534,10 @@ bool CodeGenFunction::ShouldNullCheckClassCastValue(const CastExpr *CE) {
   return true;
 }
 
+// i am just gonna fwd declare it cuz i am not aware of a shared header
+// between scalar and aggr to hijack
+llvm::Constant *buildValueBitsMask(CodeGenFunction &CGF, QualType T);
+
 // RHS is an aggregate type
 static Value *EmitHLSLElementwiseCast(CodeGenFunction &CGF, LValue SrcVal,
                                       QualType DestTy, SourceLocation Loc) {
@@ -2631,9 +2635,40 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
 
   case CK_LValueToRValueBitCast: {
     LValue SourceLVal = CGF.EmitLValue(E);
-    Address Addr =
-        SourceLVal.getAddress().withElementType(CGF.ConvertTypeForMem(DestTy));
-    LValue DestLV = CGF.MakeAddrLValue(Addr, DestTy);
+
+    if (auto CastExpr = dyn_cast<BuiltinBitCastExpr>(CE); CastExpr && not CastExpr->isZeroPad()) {
+      Address Addr = SourceLVal.getAddress().withElementType(CGF.ConvertTypeForMem(DestTy));
+      LValue DestLV = CGF.MakeAddrLValue(Addr, DestTy);
+      DestLV.setTBAAInfo(TBAAAccessInfo::getMayAliasInfo());
+      return EmitLoadOfLValue(DestLV, CE->getExprLoc());
+    }
+
+    QualType SrcTy = E->getType();
+    // careful, E is usually the subexpr and CE is the cast. i have a bad feeling about it
+    QualType DestTy = CE->getType();
+
+    Address Temp = CGF.CreateMemTemp(DestTy, "bitcast.tmp");
+
+    Address SourceAddress = SourceLVal.getAddress().withElementType(CGF.Int8Ty);
+    Address TempBytes = Temp.withElementType(CGF.Int8Ty);
+
+    uint64_t Size = CGF.getContext().getTypeSizeInChars(DestTy).getQuantity();
+    llvm::Value *SizeVal = llvm::ConstantInt::get(CGF.SizeTy, Size);
+    Builder.CreateMemCpy(TempBytes, SourceAddress, SizeVal);
+
+    uint64_t BitWidth = CGF.getContext().getTypeSize(DestTy);
+    llvm::IntegerType *IntTy = Builder.getIntNTy(BitWidth);
+    Address IntTemp = Temp.withElementType(IntTy);
+
+    llvm::Value *Bits = Builder.CreateLoad(IntTemp);
+
+    llvm::Constant *SrcMask  = buildValueBitsMask(CGF, SrcTy);
+    llvm::Constant *DestMask = buildValueBitsMask(CGF, DestTy);
+    llvm::Value *Mask = Builder.CreateAnd(SrcMask, DestMask);
+    Bits = Builder.CreateAnd(Bits, Mask);
+    Builder.CreateStore(Bits, IntTemp);
+
+    LValue DestLV = CGF.MakeAddrLValue(Temp.withElementType(CGF.ConvertTypeForMem(DestTy)), DestTy);
     DestLV.setTBAAInfo(TBAAAccessInfo::getMayAliasInfo());
     return EmitLoadOfLValue(DestLV, CE->getExprLoc());
   }

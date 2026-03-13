@@ -18,6 +18,10 @@ namespace std {
   template<class To, class From>
     constexpr To bit_cast(const From& from) noexcept; // C++20
 
+  // [bit.cast], bit_cast
+  template<class To, class From>
+    To bit_cast_zero_pad(const From& from) noexcept; // C++2d
+
   // [bit.byteswap], byteswap
   template<class T>
     constexpr T byteswap(T value) noexcept;      // C++23
