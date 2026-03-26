@@ -1047,6 +1047,101 @@ StmtResult Sema::BuildIfStmt(SourceLocation IfLoc,
                         RParenLoc, thenStmt, ElseLoc, elseStmt);
 }
 
+StmtResult Sema::ActOnCXXRangeIfStmt(
+    Scope *S, SourceLocation IfLoc, IfStatementKind Kind, Stmt *InitStmt,
+    Stmt *LoopVarDecl, SourceLocation ColonLoc, Expr *RangeExpr,
+    SourceLocation RParenLoc,
+    ArrayRef<MaterializeTemporaryExpr *> LifetimeExtendTemps) {
+
+  if (Kind != IfStatementKind::Ordinary) {
+    unsigned ID = getDiagnostics().getCustomDiagID(
+        DiagnosticsEngine::Error,
+        "i ain't doing no if-constexpr-range bullshit");
+
+    Diag(IfLoc, ID);
+    return StmtError();
+  }
+
+  return ActOnCXXForRangeStmt(S, IfLoc,
+                              SourceLocation(), // no coawait
+                              InitStmt, LoopVarDecl, ColonLoc, RangeExpr,
+                              RParenLoc, BFRK_Build, LifetimeExtendTemps);
+}
+
+StmtResult Sema::FinishCXXRangeIfStmt(Stmt *RangeIf, Stmt *Then,
+                                      SourceLocation ElseLoc, Stmt *Else) {
+
+  auto *FR = dyn_cast<CXXForRangeStmt>(RangeIf);
+  if (!FR)
+    return StmtError();
+
+  ASTContext &Ctx = Context;
+
+  //    do {
+  //      <loop var stmt>
+  //      <then>
+  //    } while ( ... );
+  SmallVector<Stmt *, 2> ThenBodyStmts;
+  ThenBodyStmts.push_back(FR->getLoopVarStmt());
+  ThenBodyStmts.push_back(Then);
+
+  auto *ThenBody =
+      CompoundStmt::Create(Ctx, ThenBodyStmts, FPOptionsOverride(),
+                           Then ? Then->getBeginLoc() : FR->getForLoc(),
+                           Then ? Then->getEndLoc() : FR->getRParenLoc());
+
+  // todo: paper has an explicit void cast, too bad cuz idc
+  ExprResult LoopCond = BuildBinOp(
+      /*S=*/nullptr, FR->getForLoc(), BO_Comma, FR->getInc(), FR->getCond());
+
+  if (LoopCond.isInvalid())
+    return StmtError();
+
+  auto *MainLoop = new (Ctx) DoStmt(ThenBody, LoopCond.get(),
+                                    FR->getForLoc(), // do loc
+                                    FR->getForLoc(), // pff
+                                    FR->getRParenLoc());
+
+  //      do { Else; } while(false);
+  Stmt *ElseBranch = nullptr;
+  if (Else) {
+    SmallVector<Stmt *, 1> ElseBodyStmts;
+    ElseBodyStmts.push_back(Else);
+
+    auto *ElseBody =
+        CompoundStmt::Create(Ctx, ElseBodyStmts, FPOptionsOverride(),
+                             Else->getBeginLoc(), Else->getEndLoc());
+
+    auto *FalseExpr = new (Ctx) CXXBoolLiteralExpr(false, Ctx.BoolTy, ElseLoc);
+
+    ElseBranch = new (Ctx) DoStmt(ElseBody, FalseExpr,
+                                  ElseLoc,  // do loc
+                                  ElseLoc,  // while loc
+                                  ElseLoc); // meh
+  }
+
+  // rewrite it
+  auto *InnerIf =
+      IfStmt::Create(Ctx,
+                     FR->getForLoc(), // if loc
+                     IfStatementKind::Ordinary,
+                     /*Init=*/nullptr,
+                     /*Var=*/nullptr, FR->getCond(),
+                     FR->getForLoc(), // bwoah, lparen loc, good enough for now
+                     FR->getRParenLoc(), MainLoop, ElseLoc, ElseBranch);
+
+  SmallVector<Stmt *, 5> Outer;
+  if (FR->getInit())
+    Outer.push_back(FR->getInit());
+  Outer.push_back(FR->getRangeStmt());
+  Outer.push_back(FR->getBeginStmt());
+  Outer.push_back(FR->getEndStmt());
+  Outer.push_back(InnerIf);
+
+  return CompoundStmt::Create(Ctx, Outer, FPOptionsOverride(), FR->getForLoc(),
+                              InnerIf->getEndLoc());
+}
+
 namespace {
   struct CaseCompareFunctor {
     bool operator()(const std::pair<llvm::APSInt, CaseStmt*> &LHS,

@@ -1254,22 +1254,19 @@ StmtResult Parser::ParseCompoundStatementBody(bool isStmtExpr) {
                                    Stmts, isStmtExpr);
 }
 
-bool Parser::ParseParenExprOrCondition(StmtResult *InitStmt,
-                                       Sema::ConditionResult &Cond,
-                                       SourceLocation Loc,
-                                       Sema::ConditionKind CK,
-                                       SourceLocation &LParenLoc,
-                                       SourceLocation &RParenLoc) {
+bool Parser::ParseParenExprOrCondition(
+    StmtResult *InitStmt, Sema::ConditionResult &Cond, SourceLocation Loc,
+    Sema::ConditionKind CK, SourceLocation &LParenLoc,
+    SourceLocation &RParenLoc, ForRangeInfo *FRI) {
   BalancedDelimiterTracker T(*this, tok::l_paren);
   T.consumeOpen();
   SourceLocation Start = Tok.getLocation();
 
   if (getLangOpts().CPlusPlus) {
-    Cond = ParseCXXCondition(InitStmt, Loc, CK, false);
+    Cond = ParseCXXCondition(InitStmt, Loc, CK, false, FRI,
+                             /*EnterForConditionScope=*/false);
   } else {
     ExprResult CondExpr = ParseExpression();
-
-    // If required, convert to a boolean value.
     if (CondExpr.isInvalid())
       Cond = Sema::ConditionError();
     else
@@ -1277,18 +1274,15 @@ bool Parser::ParseParenExprOrCondition(StmtResult *InitStmt,
                                     /*MissingOK=*/false);
   }
 
-  // If the parser was confused by the condition and we don't have a ')', try to
-  // recover by skipping ahead to a semi and bailing out.  If condexp is
-  // semantically invalid but we have well formed code, keep going.
-  if (Cond.isInvalid() && Tok.isNot(tok::r_paren)) {
+  bool ParsedRangeIf = FRI && FRI->ParsedForRangeDecl();
+
+  if (!ParsedRangeIf && Cond.isInvalid() && Tok.isNot(tok::r_paren)) {
     SkipUntil(tok::semi);
-    // Skipping may have stopped if it found the containing ')'.  If so, we can
-    // continue parsing the if statement.
     if (Tok.isNot(tok::r_paren))
       return true;
   }
 
-  if (Cond.isInvalid()) {
+  if (!ParsedRangeIf && Cond.isInvalid()) {
     ExprResult CondExpr = Actions.CreateRecoveryExpr(
         Start, Tok.getLocation() == Start ? Start : PrevTokLocation, {},
         Actions.PreferredConditionType(CK));
@@ -1297,17 +1291,13 @@ bool Parser::ParseParenExprOrCondition(StmtResult *InitStmt,
                                     /*MissingOK=*/false);
   }
 
-  // Either the condition is valid or the rparen is present.
   T.consumeClose();
   LParenLoc = T.getOpenLocation();
   RParenLoc = T.getCloseLocation();
 
-  // Check for extraneous ')'s to catch things like "if (foo())) {".  We know
-  // that all callers are looking for a statement after the condition, so ")"
-  // isn't valid.
   while (Tok.is(tok::r_paren)) {
     Diag(Tok, diag::err_extraneous_rparen_in_condition)
-      << FixItHint::CreateRemoval(Tok.getLocation());
+        << FixItHint::CreateRemoval(Tok.getLocation());
     ConsumeParen();
   }
 
@@ -1467,6 +1457,7 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
   // Parse the condition.
   StmtResult InitStmt;
   Sema::ConditionResult Cond;
+  ForRangeInfo RangeIfInfo;
   SourceLocation LParen;
   SourceLocation RParen;
   std::optional<bool> ConstexprCondition;
@@ -1475,10 +1466,46 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
     if (ParseParenExprOrCondition(&InitStmt, Cond, IfLoc,
                                   IsConstexpr ? Sema::ConditionKind::ConstexprIf
                                               : Sema::ConditionKind::Boolean,
-                                  LParen, RParen))
+                                  LParen, RParen, &RangeIfInfo))
       return StmtError();
 
-    if (IsConstexpr)
+    if (RangeIfInfo.ParsedForRangeDecl()) {
+      // fuck me, if constexpr (auto e : range) ??!
+      IfStatementKind Kind =
+          IsConstexpr ? IfStatementKind::Constexpr : IfStatementKind::Ordinary;
+
+      StmtResult RangeIf = Actions.ActOnCXXRangeIfStmt(
+          getCurScope(), IfLoc, Kind, InitStmt.get(), RangeIfInfo.LoopVar.get(),
+          RangeIfInfo.ColonLoc, RangeIfInfo.RangeExpr.get(), RParen,
+          RangeIfInfo.LifetimeExtendTemps);
+
+      if (RangeIf.isInvalid())
+        return StmtError();
+
+      ParseScope IfRangeScope(this, Scope::DeclScope | Scope::BreakScope |
+                                        Scope::ContinueScope);
+      bool isBracedThen = Tok.is(tok::l_brace);
+
+      StmtResult ThenStmt{};
+      bool ShouldEnter = C99orCXX && !isBracedThen;
+      ParseScope InnerScope(this, Scope::DeclScope, ShouldEnter);
+
+      SourceLocation InnerStatementTrailingElseLoc;
+      ThenStmt = ParseStatement(&InnerStatementTrailingElseLoc);
+
+      SourceLocation ElseLoc;
+      StmtResult ElseStmt;
+
+      if (Tok.is(tok::kw_else)) {
+        ElseLoc = ConsumeToken();
+        ElseStmt = ParseStatement();
+      }
+
+      return Actions.FinishCXXRangeIfStmt(RangeIf.get(), ThenStmt.get(),
+                                          ElseLoc, ElseStmt.get());
+    }
+
+    if (IsConstexpr && !RangeIfInfo.ParsedForRangeDecl())
       ConstexprCondition = Cond.getKnownValue();
   }
 

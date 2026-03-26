@@ -11080,12 +11080,23 @@ public:
                          ConditionResult Cond, SourceLocation RParenLoc,
                          Stmt *ThenVal, SourceLocation ElseLoc, Stmt *ElseVal);
 
+  StmtResult
+  ActOnCXXRangeIfStmt(Scope *S, SourceLocation IfLoc, IfStatementKind Kind,
+                      Stmt *InitStmt, Stmt *LoopVarDecl,
+                      SourceLocation ColonLoc, Expr *RangeExpr,
+                      SourceLocation RParenLoc,
+                      ArrayRef<MaterializeTemporaryExpr *> LifetimeExtendTemps);
+
+  StmtResult FinishCXXRangeIfStmt(Stmt *RangeIf, Stmt *Then,
+                                  SourceLocation ElseLoc, Stmt *Else);
+
   ExprResult CheckSwitchCondition(SourceLocation SwitchLoc, Expr *Cond);
 
   StmtResult ActOnStartOfSwitchStmt(SourceLocation SwitchLoc,
                                     SourceLocation LParenLoc, Stmt *InitStmt,
                                     ConditionResult Cond,
                                     SourceLocation RParenLoc);
+
   StmtResult ActOnFinishSwitchStmt(SourceLocation SwitchLoc, Stmt *Switch,
                                    Stmt *Body);
 

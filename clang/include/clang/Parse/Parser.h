@@ -7398,7 +7398,8 @@ public:
                                  Sema::ConditionResult &CondResult,
                                  SourceLocation Loc, Sema::ConditionKind CK,
                                  SourceLocation &LParenLoc,
-                                 SourceLocation &RParenLoc);
+                                 SourceLocation &RParenLoc,
+                                 ForRangeInfo *FRI = nullptr);
 
   /// ParseIfStatement
   /// \verbatim
