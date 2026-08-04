@@ -223,6 +223,7 @@ def BlockExpr : StmtNode<Expr>;
 def OpaqueValueExpr : StmtNode<Expr>;
 def RecoveryExpr : StmtNode<Expr>;
 def BuiltinBitCastExpr : StmtNode<ExplicitCastExpr>;
+def BuiltinObjectRepresentationPointerExpr : StmtNode<ExplicitCastExpr>;
 def EmbedExpr : StmtNode<Expr>;
 
 // Microsoft Extensions.

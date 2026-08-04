@@ -3434,6 +3434,18 @@ public:
     return getSema().BuildBuiltinBitCastExpr(KWLoc, TSI, Sub, RParenLoc);
   }
 
+  /// Build a new C++ __builtin_object_representation_pointer expression.
+  ///
+  /// By default, performs semantic analysis to build the new expression.
+  /// Subclasses may override this routine to provide different behavior.
+  ExprResult RebuildBuiltinObjectRepresentationExpr(SourceLocation KWLoc,
+                                                    TypeSourceInfo *TSI,
+                                                    Expr *Sub,
+                                                    SourceLocation RParenLoc) {
+    return getSema().BuildBuiltinObjectRepresentationPointerExpr(
+        KWLoc, TSI, Sub, RParenLoc);
+  }
+
   /// Build a new C++ typeid(type) expression.
   ///
   /// By default, performs semantic analysis to build the new expression.
@@ -14840,6 +14852,23 @@ TreeTransform<Derived>::TransformBuiltinBitCastExpr(BuiltinBitCastExpr *BCE) {
 
   return getDerived().RebuildBuiltinBitCastExpr(BCE->getBeginLoc(), TSI,
                                                 Sub.get(), BCE->getEndLoc());
+}
+
+template<typename Derived>
+ExprResult
+TreeTransform<Derived>::TransformBuiltinObjectRepresentationPointerExpr(
+    BuiltinObjectRepresentationPointerExpr *BORPE) {
+  TypeSourceInfo *TSI =
+      getDerived().TransformType(BORPE->getTypeInfoAsWritten());
+  if (!TSI)
+    return ExprError();
+
+  ExprResult Sub = getDerived().TransformExpr(BORPE->getSubExpr());
+  if (Sub.isInvalid())
+    return ExprError();
+
+  return getDerived().RebuildBuiltinBitCastExpr(BORPE->getBeginLoc(), TSI,
+                                                Sub.get(), BORPE->getEndLoc());
 }
 
 template<typename Derived>

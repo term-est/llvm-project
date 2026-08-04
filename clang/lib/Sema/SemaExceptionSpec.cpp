@@ -1309,6 +1309,7 @@ CanThrowResult Sema::canThrow(const Stmt *S) {
   case Expr::CXXConstCastExprClass:
   case Expr::CXXAddrspaceCastExprClass:
   case Expr::CXXReinterpretCastExprClass:
+  case Expr::BuiltinObjectRepresentationPointerExprClass:
   case Expr::BuiltinBitCastExprClass:
       // FIXME: Properly determine whether a variably-modified type can throw.
     if (cast<Expr>(S)->getType()->isVariablyModifiedType())

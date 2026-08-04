@@ -140,6 +140,7 @@ namespace {
     bool CheckHLSLCStyleCast(CheckedConversionKind CCK);
     void CheckCStyleCast();
     void CheckBuiltinBitCast();
+    void CheckBuiltinObjectRepresentationPointer();
     void CheckAddrspaceCast();
 
     void updatePartOfExplicitCastFlags(CastExpr *CE) {
@@ -461,6 +462,52 @@ ExprResult Sema::BuildBuiltinBitCastExpr(SourceLocation KWLoc,
       new (Context) BuiltinBitCastExpr(Op.ResultType, Op.ValueKind, Op.Kind,
                                        Op.SrcExpr.get(), TSI, KWLoc, RParenLoc);
   return Op.complete(BCE);
+}
+
+ExprResult Sema::ActOnBuiltinObjectRepresentationPointerExpr(
+    SourceLocation KWLoc, Declarator &D, ExprResult Operand,
+    SourceLocation RParenLoc) {
+  assert(!D.isInvalidType());
+
+  TypeSourceInfo *TInfo = GetTypeForDeclaratorCast(D, Operand.get()->getType());
+
+  if (D.isInvalidType())
+    return ExprError();
+
+  return BuildBuiltinObjectRepresentationPointerExpr(KWLoc, TInfo,
+                                                     Operand.get(), RParenLoc);
+}
+
+ExprResult Sema::BuildBuiltinObjectRepresentationPointerExpr(SourceLocation KWLoc,
+                                                    TypeSourceInfo *TSI,
+                                                    Expr *Operand,
+                                                    SourceLocation RParenLoc) {
+  if (Operand->hasPlaceholderType()) {
+    ExprResult PR = CheckPlaceholderExpr(Operand);
+    if (PR.isInvalid())
+      return ExprError();
+    Operand = PR.get();
+  }
+
+  QualType ResultType =
+      Context.getPointerType(TSI->getType().withConst());
+
+  CastOperation Op(*this, ResultType, Operand);
+  Op.OpRange = CastOperation::OpRangeType(KWLoc, KWLoc, RParenLoc);
+  TypeLoc TL = TSI->getTypeLoc();
+  Op.DestRange = SourceRange(TL.getBeginLoc(), TL.getEndLoc());
+
+  if (!Operand->isTypeDependent() && !TSI->getType()->isDependentType()) {
+    Op.CheckBuiltinObjectRepresentationPointer();
+    if (Op.SrcExpr.isInvalid())
+      return ExprError();
+  }
+
+  auto *E = new (Context) BuiltinObjectRepresentationPointerExpr(
+      Op.ResultType, Op.ValueKind, Op.Kind, Op.SrcExpr.get(), TSI, KWLoc,
+      RParenLoc);
+
+  return Op.complete(E);
 }
 
 /// Try to diagnose a failed overloaded cast.  Returns true if
@@ -3422,6 +3469,76 @@ void CastOperation::CheckBuiltinBitCast() {
   }
 
   Kind = CK_LValueToRValueBitCast;
+}
+
+void CastOperation::CheckBuiltinObjectRepresentationPointer() {
+  SrcExpr = Self.DefaultFunctionArrayLvalueConversion(SrcExpr.get());
+  if (SrcExpr.isInvalid())
+    return;
+
+  QualType SrcType = SrcExpr.get()->getType();
+
+  ResultType = DestType;
+  ValueKind = VK_PRValue;
+  Kind = CK_BitCast;
+//
+//  if (!DestType->isPointerType()) {
+//    Self.Diag(OpRange.getBegin(),
+//              diag::err_builtin_object_representation_pointer_dest)
+//        << DestType << DestRange;
+//    SrcExpr = ExprError();
+//    return;
+//  }
+//
+//  if (!SrcType->isPointerType()) {
+//    Self.Diag(OpRange.getBegin(),
+//              diag::err_builtin_object_representation_pointer_source)
+//        << SrcType << SrcExpr.get()->getSourceRange();
+//    SrcExpr = ExprError();
+//    return;
+//  }
+
+  QualType SrcPointee = SrcType->getPointeeType();
+  QualType DestPointee = DestType->getPointeeType();
+  QualType ByteType = DestPointee.getUnqualifiedType();
+
+  bool IsRepresentationType =
+      ByteType->isCharType() ||
+      ByteType->isSpecificBuiltinType(BuiltinType::UChar) ||
+      ByteType->isStdByteType();
+
+//  if (!IsRepresentationType || !DestPointee.isConstQualified() ||
+//      DestPointee.isVolatileQualified()) {
+//    Self.Diag(OpRange.getBegin(),
+//              diag::err_builtin_object_representation_pointer_dest)
+//        << DestType << DestRange;
+//    SrcExpr = ExprError();
+//    return;
+//  }
+
+//  if (!SrcPointee->isObjectType() || SrcPointee.isVolatileQualified()) {
+//    Self.Diag(OpRange.getBegin(),
+//              diag::err_builtin_object_representation_pointer_source)
+//        << SrcType << SrcExpr.get()->getSourceRange();
+//    SrcExpr = ExprError();
+//    return;
+//  }
+
+//  if (Self.RequireCompleteType(
+//          OpRange.getBegin(), SrcPointee,
+//          diag::err_builtin_object_representation_pointer_incomplete)) {
+//    SrcExpr = ExprError();
+//    return;
+//  }
+
+//  // Keep runtime lowering a true pointer bitcast.
+//  if (SrcPointee.getAddressSpace() != DestPointee.getAddressSpace()) {
+//    Self.Diag(OpRange.getBegin(),
+//              diag::err_builtin_object_representation_pointer_addr_space)
+//        << SrcType << DestType;
+//    SrcExpr = ExprError();
+//    return;
+//  }
 }
 
 /// DiagnoseCastQual - Warn whenever casts discards a qualifiers, be it either

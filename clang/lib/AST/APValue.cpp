@@ -169,6 +169,7 @@ namespace {
     unsigned PathLength;
     bool IsNullPtr : 1;
     bool IsOnePastTheEnd : 1;
+    bool IsObjectRepresentationPointer : 1;
   };
 }
 

@@ -2243,6 +2243,15 @@ void StmtPrinter::VisitBuiltinBitCastExpr(BuiltinBitCastExpr *Node) {
   OS << ")";
 }
 
+void StmtPrinter::VisitBuiltinObjectRepresentationPointerExpr(
+    BuiltinObjectRepresentationPointerExpr *Node) {
+      OS << "__builtin_object_representation_pointer(";
+      Node->getTypeInfoAsWritten()->getType().print(OS, Policy);
+      OS << ", ";
+      PrintExpr(Node->getSubExpr());
+      OS << ")";
+}
+
 void StmtPrinter::VisitCXXAddrspaceCastExpr(CXXAddrspaceCastExpr *Node) {
   VisitCXXNamedCastExpr(Node);
 }

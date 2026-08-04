@@ -2602,6 +2602,14 @@ public:
   ExprResult BuildBuiltinBitCastExpr(SourceLocation KWLoc, TypeSourceInfo *TSI,
                                      Expr *Operand, SourceLocation RParenLoc);
 
+  ExprResult ActOnBuiltinObjectRepresentationPointerExpr(
+      SourceLocation KWLoc, Declarator &Dcl, ExprResult Operand,
+      SourceLocation RParenLoc);
+
+  ExprResult BuildBuiltinObjectRepresentationPointerExpr(
+      SourceLocation KWLoc, TypeSourceInfo *TSI, Expr *Operand,
+      SourceLocation RParenLoc);
+
   // Checks that reinterpret casts don't have undefined behavior.
   void CheckCompatibleReinterpretCast(QualType SrcType, QualType DestType,
                                       bool IsDereference, SourceRange Range);

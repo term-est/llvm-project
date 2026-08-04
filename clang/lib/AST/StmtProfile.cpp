@@ -2108,6 +2108,12 @@ void StmtProfiler::VisitBuiltinBitCastExpr(const BuiltinBitCastExpr *S) {
   VisitType(S->getTypeInfoAsWritten()->getType());
 }
 
+void StmtProfiler::VisitBuiltinObjectRepresentationPointerExpr(
+    const BuiltinObjectRepresentationPointerExpr *S) {
+  VisitExpr(S);
+  VisitType(S->getTypeInfoAsWritten()->getType());
+}
+
 void StmtProfiler::VisitCXXAddrspaceCastExpr(const CXXAddrspaceCastExpr *S) {
   VisitCXXNamedCastExpr(S);
 }

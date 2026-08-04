@@ -3904,6 +3904,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case CXXConstCastExprClass:
   case CXXAddrspaceCastExprClass:
   case CXXFunctionalCastExprClass:
+  case BuiltinObjectRepresentationPointerExprClass:
   case BuiltinBitCastExprClass: {
     // While volatile reads are side-effecting in both C and C++, we treat them
     // as having possible (not definite) side-effects. This allows idiomatic

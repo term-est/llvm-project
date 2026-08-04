@@ -4756,6 +4756,10 @@ private:
   /// Parse a __builtin_bit_cast(T, E), used to implement C++2a std::bit_cast.
   ExprResult ParseBuiltinBitCast();
 
+
+  /// Parse a __builtin_object_representations_pointer(T, E),
+  /// used to implement C++2d constexpr std::as_bytes.
+  ExprResult ParseBuiltinObjectRepresentationPointer();
   //===--------------------------------------------------------------------===//
   // C++ 5.2p1: C++ Type Identification
 

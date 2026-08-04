@@ -1943,6 +1943,13 @@ void ASTStmtWriter::VisitBuiltinBitCastExpr(BuiltinBitCastExpr *E) {
   Code = serialization::EXPR_BUILTIN_BIT_CAST;
 }
 
+void ASTStmtWriter::VisitBuiltinObjectRepresentationPointerExpr(BuiltinObjectRepresentationPointerExpr *E) {
+  VisitExplicitCastExpr(E);
+  Record.AddSourceLocation(E->getBeginLoc());
+  Record.AddSourceLocation(E->getEndLoc());
+  Code = serialization::EXPR_BUILTIN_OBJECT_REPRESENTATION_POINTER;
+}
+
 void ASTStmtWriter::VisitUserDefinedLiteral(UserDefinedLiteral *E) {
   VisitCallExpr(E);
   Record.AddSourceLocation(E->UDSuffixLoc);

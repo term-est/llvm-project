@@ -85,7 +85,6 @@ public:
   static unsigned getMaxIndex() {
     return (std::numeric_limits<unsigned>::max() >> NumLowBitsAvailable) - 1;
   }
-
   static constexpr int NumLowBitsAvailable = 3;
 };
 }

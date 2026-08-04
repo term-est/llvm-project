@@ -2185,6 +2185,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXReinterpretCastExprClass:
     case Stmt::CXXConstCastExprClass:
     case Stmt::CXXFunctionalCastExprClass:
+    case Stmt::BuiltinObjectRepresentationPointerExprClass:
     case Stmt::BuiltinBitCastExprClass:
     case Stmt::ObjCBridgedCastExprClass:
     case Stmt::CXXAddrspaceCastExprClass: {

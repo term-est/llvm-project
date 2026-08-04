@@ -5498,6 +5498,39 @@ public:
   }
 };
 
+class BuiltinObjectRepresentationPointerExpr final
+    : public ExplicitCastExpr,
+      private llvm::TrailingObjects<
+          BuiltinObjectRepresentationPointerExpr, CXXBaseSpecifier *> {
+  friend class ASTStmtReader;
+  friend class CastExpr;
+  friend TrailingObjects;
+
+  SourceLocation KWLoc;
+  SourceLocation RParenLoc;
+
+public:
+  BuiltinObjectRepresentationPointerExpr(
+      QualType T, ExprValueKind VK, CastKind CK, Expr *Operand,
+      TypeSourceInfo *WrittenType, SourceLocation KWLoc,
+      SourceLocation RParenLoc)
+      : ExplicitCastExpr(BuiltinObjectRepresentationPointerExprClass, T, VK,
+                         CK, Operand, 0, false, WrittenType),
+        KWLoc(KWLoc), RParenLoc(RParenLoc) {}
+
+  BuiltinObjectRepresentationPointerExpr(EmptyShell Empty)
+      : ExplicitCastExpr(BuiltinObjectRepresentationPointerExprClass, Empty,
+                         0, false) {}
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return KWLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY { return RParenLoc; }
+
+  static bool classof(const Stmt *S) {
+    return S->getStmtClass() ==
+           BuiltinObjectRepresentationPointerExprClass;
+  }
+};
+
 /// Represents a C++26 reflect expression [expr.reflect]. The operand of the
 /// expression is either:
 ///  - :: (global namespace),

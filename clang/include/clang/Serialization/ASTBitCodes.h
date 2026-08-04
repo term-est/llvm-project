@@ -2091,6 +2091,9 @@ enum StmtCode {
   EXPR_HLSL_OUT_ARG,
 
   STMT_DEFER,
+
+  // __builtin_object_representation_pointer
+  EXPR_BUILTIN_OBJECT_REPRESENTATION_POINTER,
 };
 
 /// The kinds of designators that can occur in a

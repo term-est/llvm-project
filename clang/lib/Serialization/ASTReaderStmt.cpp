@@ -1935,6 +1935,12 @@ void ASTStmtReader::VisitBuiltinBitCastExpr(BuiltinBitCastExpr *E) {
   E->RParenLoc = readSourceLocation();
 }
 
+void ASTStmtReader::VisitBuiltinObjectRepresentationPointerExpr(BuiltinObjectRepresentationPointerExpr *E) {
+  VisitExplicitCastExpr(E);
+  E->KWLoc = readSourceLocation();
+  E->RParenLoc = readSourceLocation();
+}
+
 void ASTStmtReader::VisitUserDefinedLiteral(UserDefinedLiteral *E) {
   VisitCallExpr(E);
   E->UDSuffixLoc = readSourceLocation();
@@ -4287,6 +4293,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) BuiltinBitCastExpr(Empty);
       break;
     }
+
+    case EXPR_BUILTIN_OBJECT_REPRESENTATION_POINTER:
+      S = new (Context) BuiltinObjectRepresentationPointerExpr(Empty);
+      break;
 
     case EXPR_USER_DEFINED_LITERAL: {
       auto NumArgs = Record[ASTStmtReader::NumExprFields];
