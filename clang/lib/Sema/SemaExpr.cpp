@@ -20661,8 +20661,7 @@ static void DoMarkVarDeclReferenced(
 
   bool NeedDefinition =
       OdrUse == OdrUseContext::Used || NeededForConstantEvaluation ||
-      (TSK != clang::TSK_Undeclared && !UsableInConstantExpr &&
-       Var->getType()->isUndeducedType());
+      (TSK != clang::TSK_Undeclared && Var->getType()->isUndeducedType());
 
   assert(!isa<VarTemplatePartialSpecializationDecl>(Var) &&
          "Can't instantiate a partial template specialization.");
@@ -20710,8 +20709,13 @@ static void DoMarkVarDeclReferenced(
         // The size of an incomplete array type can be updated by
         // instantiating the initializer. The DeclRefExpr's type should be
         // updated accordingly too, or users of it would be confused!
-        if (E)
+        if (E) {
           SemaRef.getCompletedType(E);
+
+          if (E->getType()->isUndeducedType() &&
+              !Var->getType()->isUndeducedType())
+            E->setType(Var->getType().getNonPackExpansionType());
+        }
 
         // Re-set the member to trigger a recomputation of the dependence bits
         // for the expression.

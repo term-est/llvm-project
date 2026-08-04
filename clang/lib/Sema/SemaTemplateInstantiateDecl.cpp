@@ -6336,6 +6336,27 @@ void Sema::InstantiateVariableInitializer(
     CUDA().checkAllowedInitializer(Var);
 }
 
+static VarDecl *getVariableTemplatePatternWithInitializer(VarDecl * Pattern) {
+  while (!Pattern->getFirstDecl()->hasInit()) {
+    VarDecl *Next = nullptr;
+
+    if (auto *Partial =
+            dyn_cast<VarTemplatePartialSpecializationDecl>(Pattern)) {
+      Next = Partial->getInstantiatedFromMember();
+    } else if (auto *Template = Pattern->getDescribedVarTemplate()) {
+      if (auto *FromMember = Template->getInstantiatedFromMemberTemplate())
+        Next = FromMember->getTemplatedDecl();
+    }
+
+    if (!Next || Next == Pattern)
+      break;
+
+    Pattern = Next;
+  }
+
+  return Pattern;
+}
+
 void Sema::InstantiateVariableDefinition(SourceLocation PointOfInstantiation,
                                          VarDecl *Var, bool Recursive,
                                       bool DefinitionRequired, bool AtEndOfTU) {
@@ -6361,6 +6382,11 @@ void Sema::InstantiateVariableDefinition(SourceLocation PointOfInstantiation,
 
   VarTemplateSpecializationDecl *VarSpec =
       dyn_cast<VarTemplateSpecializationDecl>(Var);
+
+  if (VarSpec && PatternDecl->getType()->isUndeducedType() &&
+      !PatternDecl->getFirstDecl()->hasInit())
+    PatternDecl = getVariableTemplatePatternWithInitializer(PatternDecl);
+
   if (VarSpec) {
     // If this is a static data member template, there might be an
     // uninstantiated initializer on the declaration. If so, instantiate
